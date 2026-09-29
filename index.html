@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Boarding Lab: aircraft boarding simulator</title>
+  <meta name="description" content="Compare airline boarding methods side by side on real aircraft layouts. Agent-based simulation calibrated to published boarding experiments, with Monte Carlo analysis and a turnaround planner." />
+  <meta property="og:title" content="Boarding Lab: aircraft boarding simulator" />
+  <meta property="og:description" content="Race Steffen, WilMA, back-to-front and more on A320, 737, 787, A350, 777 and A380 cabins." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563EB'/%3E%3Cpath d='M7 18l18-7-4 9-5-1-3 5-1-5z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- ============ TOP BAR ============ -->
+    <header class="topbar">
+      <button class="icon-btn only-mobile" id="menuBtn" aria-label="Open settings">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="brand">
+        <span class="logo"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8"/><path d="M7 18l18-7-4 9-5-1-3 5-1-5z"/></svg></span>
+        <span class="brand-name">Boarding Lab</span>
+      </div>
+      <nav class="tabs" role="tablist" id="tabs">
+        <button role="tab" data-view="simulate" class="active">Simulate</button>
+        <button role="tab" data-view="analyze">Analyze</button>
+        <button role="tab" data-view="risk">Risk</button>
+        <button role="tab" data-view="plan">Plan</button>
+        <button role="tab" data-view="methods">Methods</button>
+      </nav>
+      <div class="top-actions">
+        <button class="icon-btn" id="themeBtn" aria-label="Toggle dark mode">
+          <svg viewBox="0 0 24 24" class="i-moon"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          <svg viewBox="0 0 24 24" class="i-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+      <section class="side-section">
+        <div class="side-label">Scenario</div>
+        <select id="presetSelect" class="select"></select>
+        <p class="hint" id="presetHint"></p>
+      </section>
+
+      <section class="side-section">
+        <div class="side-label">Aircraft</div>
+        <select id="aircraftSelect" class="select"></select>
+        <div class="ac-spec" id="acSpec"></div>
+        <div class="side-sublabel">Boarding doors</div>
+        <div class="chips" id="doorChips"></div>
+      </section>
+
+      <section class="side-section">
+        <div class="side-label">Methods to compare <span class="count-badge" id="stratCount">0/4</span></div>
+        <div class="strat-list" id="stratList"></div>
+      </section>
+
+      <section class="side-section">
+        <div class="side-label">Passengers</div>
+        <div id="paxParams"></div>
+      </section>
+
+      <section class="side-section">
+        <div class="side-label">Operations</div>
+        <label class="toggle-row">
+          <span><b>Pre-boarding</b><small>Passengers needing assistance, families, then premium cabin</small></span>
+          <input type="checkbox" id="preboardToggle" class="switch" />
+        </label>
+        <div class="param">
+          <div class="param-top"><label>Disruptions</label><a href="#" data-goto="risk" class="sm">Risk analysis →</a></div>
+          <div class="seg full" id="riskSeg" role="radiogroup" aria-label="Disruptions">
+            <button data-v="off" class="on">Off</button><button data-v="realistic">Realistic</button><button data-v="bad">Bad day</button>
+          </div>
+          <small>Wrong seats, bags sent to the hold, boarding pauses, late passengers, medical incidents</small>
+        </div>
+        <div id="opsParams"></div>
+      </section>
+
+      <details class="side-section advanced">
+        <summary class="side-label">Behaviour model <span class="muted">(advanced)</span></summary>
+        <div id="advParams"></div>
+        <button class="btn ghost sm full" id="resetModelBtn">Reset to calibrated defaults</button>
+      </details>
+
+      <section class="side-section seed-row">
+        <div>
+          <div class="side-label">Random seed</div>
+          <p class="hint">Same seed = the same passengers and bags in every method.</p>
+        </div>
+        <div class="seed-ctrl">
+          <input type="number" id="seedInput" class="input mono" min="1" max="999999" />
+          <button class="icon-btn" id="diceBtn" title="New passengers" aria-label="Randomise seed">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.2" class="fill"/><circle cx="15.5" cy="15.5" r="1.2" class="fill"/><circle cx="15.5" cy="8.5" r="1.2" class="fill"/><circle cx="8.5" cy="15.5" r="1.2" class="fill"/></svg>
+          </button>
+        </div>
+      </section>
+      <footer class="side-foot">
+        Model calibrated against the Steffen &amp; Hotchkiss (2011) boarding experiment. <a href="#" data-goto="methods">Method guide →</a>
+      </footer>
+    </aside>
+
+    <!-- ============ MAIN ============ -->
+    <main class="main" id="main">
+      <!-- ---------- SIMULATE ---------- -->
+      <section class="view active" id="view-simulate">
+        <div class="view-head">
+          <div>
+            <h1 id="simTitle">Boarding simulation</h1>
+            <p class="sub" id="simSub"></p>
+          </div>
+          <div class="head-actions">
+            <div class="seg" id="colorBySeg" role="radiogroup" aria-label="Colour seats by">
+              <button data-v="status" class="on">Status</button>
+              <button data-v="order">Boarding order</button>
+              <button data-v="group">Groups</button>
+            </div>
+            <label class="mini-toggle"><input type="checkbox" id="binsToggle" checked /> Bins</label>
+          </div>
+        </div>
+
+        <div class="sim-layout">
+          <div class="lanes" id="lanes"></div>
+          <aside class="insights">
+            <div class="card">
+              <div class="card-head"><h3>Live comparison</h3><span class="muted sm" id="liveClock">t = 0:00</span></div>
+              <div class="table-wrap"><table class="table compact" id="liveTable"></table></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Passengers seated</h3></div>
+              <div id="liveChart" class="chart-box"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Events</h3><span class="muted sm">click to jump</span></div>
+              <ul class="events" id="eventList"></ul>
+            </div>
+          </aside>
+        </div>
+
+        <div class="transport" id="transport">
+          <button class="play-btn" id="playBtn" aria-label="Play">
+            <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
+            <svg viewBox="0 0 24 24" class="i-pause"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+          </button>
+          <button class="icon-btn" id="restartBtn" aria-label="Restart" title="Restart (Home)">
+            <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></svg>
+          </button>
+          <span class="time mono" id="tNow">0:00</span>
+          <div class="scrubber" id="scrubber" role="slider" aria-label="Timeline" tabindex="0">
+            <div class="track"><div class="fill" id="scrubFill"></div></div>
+            <div class="markers" id="scrubMarkers"></div>
+            <div class="thumb" id="scrubThumb"></div>
+          </div>
+          <span class="time mono muted" id="tEnd">0:00</span>
+          <div class="seg speed" id="speedSeg" aria-label="Playback speed">
+            <button data-v="1">1×</button><button data-v="5">5×</button><button data-v="10" class="on">10×</button><button data-v="25">25×</button><button data-v="60">60×</button>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i class="lg" style="background:var(--agent-walk)"></i>Walking</span>
+          <span><i class="lg" style="background:var(--agent-blocked)"></i>Blocked in aisle</span>
+          <span><i class="lg" style="background:var(--agent-stow)"></i>Stowing bag</span>
+          <span><i class="lg" style="background:var(--agent-shuffle)"></i>Seat shuffle</span>
+          <span><i class="lg" style="background:var(--agent-incident)"></i>Disruption</span>
+          <span><i class="lg sq" style="outline:2px solid var(--agent-stand)"></i>Neighbour standing up</span>
+          <span><i class="lg bar"></i>Bin fill</span>
+          <span class="kbd-hint"><kbd>Space</kbd> play · <kbd>←</kbd><kbd>→</kbd> ±10 s</span>
+        </div>
+      </section>
+
+      <!-- ---------- ANALYZE ---------- -->
+      <section class="view" id="view-analyze">
+        <div class="view-head">
+          <div>
+            <h1>Monte Carlo analysis</h1>
+            <p class="sub">A single boarding is noisy. This runs the same scenario many times with different passengers, so you can compare methods on their full distribution rather than one lucky run.</p>
+          </div>
+          <div class="head-actions">
+            <div class="seg" id="mcScopeSeg"><button data-v="all" class="on">All methods</button><button data-v="selected">Selected</button></div>
+            <div class="seg" id="mcRepsSeg"><button data-v="25">25</button><button data-v="50" class="on">50</button><button data-v="100">100</button><button data-v="200">200</button></div>
+            <button class="btn primary" id="mcRunBtn">Run analysis</button>
+          </div>
+        </div>
+        <div class="progress-line" id="mcProgress"><div></div></div>
+        <div class="empty" id="mcEmpty">
+          <div class="empty-ico"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-7"/></svg></div>
+          <h3>No analysis yet</h3>
+          <p>Run the analysis to get median, p90 and win rate for every method in this scenario.</p>
+          <button class="btn primary" data-action="mc">Run 50 simulations per method</button>
+        </div>
+        <div id="mcResults" hidden>
+          <div class="kpis" id="mcKpis"></div>
+          <div class="grid-2">
+            <div class="card span-2">
+              <div class="card-head"><h3>Boarding time distribution</h3><span class="muted sm">box = p25–p75 · whiskers = p10–p90 · line = median · ○ = mean</span></div>
+              <div id="mcBox" class="chart-box"></div>
+            </div>
+            <div class="card span-2">
+              <div class="card-head"><h3>Results</h3><button class="btn ghost sm" id="csvBtn">Download CSV</button></div>
+              <div class="table-wrap"><table class="table" id="mcTable"></table></div>
+            </div>
+            <div class="card span-2">
+              <div class="card-head">
+                <h3>Sensitivity</h3>
+                <div class="head-actions">
+                  <select class="select sm" id="sensParam">
+                    <option value="carryOnShare">Roller-bag share</option>
+                    <option value="loadFactor">Load factor</option>
+                    <option value="compliance">Group discipline</option>
+                    <option value="partyShare">Travel parties</option>
+                    <option value="headway">Door flow (s/pax)</option>
+                    <option value="binCapacity">Bin space per seat</option>
+                  </select>
+                  <button class="btn sm" id="sensRunBtn">Run sweep</button>
+                </div>
+              </div>
+              <p class="sub sm">How each selected method's mean boarding time changes as one factor varies, with everything else held fixed.</p>
+              <div id="sensChart" class="chart-box"><div class="placeholder">Pick a factor and run the sweep.</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- RISK ---------- -->
+      <section class="view" id="view-risk">
+        <div class="view-head">
+          <div>
+            <h1>Disruption risk</h1>
+            <p class="sub">Each method boards the same passengers twice: once in clean conditions and once with irregular events drawn at the rates below. The gap between the two is the buffer your schedule has to absorb.</p>
+          </div>
+          <div class="head-actions">
+            <div class="seg" id="riskLevelSeg"><button data-v="realistic" class="on">Realistic day</button><button data-v="bad">Bad day</button></div>
+            <div class="seg" id="riskRepsSeg"><button data-v="25">25</button><button data-v="50" class="on">50</button><button data-v="100">100</button></div>
+            <button class="btn primary" id="riskRunBtn">Run risk analysis</button>
+          </div>
+        </div>
+        <div class="progress-line" id="riskProgress"><div></div></div>
+        <div class="card risk-catalogue">
+          <div class="card-head">
+            <h3>Disruption catalogue</h3>
+            <div class="head-actions"><span class="muted sm">Rates are planning assumptions. Replace them with your own irregularity data.</span><button class="btn ghost sm" id="riskResetBtn">Reset rates</button></div>
+          </div>
+          <div class="table-wrap"><table class="table risk-table" id="riskTable"></table></div>
+        </div>
+        <div class="empty" id="riskEmpty">
+          <div class="empty-ico"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
+          <h3>No risk analysis yet</h3>
+          <p>Compares the methods selected in the sidebar with disruptions switched off and on, and measures how much each event contributes to the delay.</p>
+          <button class="btn primary" data-action="risk">Run risk analysis</button>
+        </div>
+        <div id="riskResults" hidden>
+          <div class="kpis" id="riskKpis"></div>
+          <div class="grid-2">
+            <div class="card span-2">
+              <div class="card-head"><h3>Clean vs disrupted</h3><span class="muted sm">grey = clean · colour = with disruptions · whiskers p10–p90</span></div>
+              <div id="riskBox" class="chart-box"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>What drives the delay</h3><span class="muted sm" id="riskFocusLabel"></span></div>
+              <div id="riskTornado" class="chart-box"></div>
+              <p class="hint">Mean extra time per flight with only that event switched on. Red bars add to boarding time. The orange bar (offload) adds to door-close time instead.</p>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Robustness by method</h3><span class="muted sm">Δ p90 = buffer to plan</span></div>
+              <div class="table-wrap"><table class="table" id="riskMethodTable"></table></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- PLAN ---------- -->
+      <section class="view" id="view-plan">
+        <div class="view-head">
+          <div>
+            <h1>Turnaround planner</h1>
+            <p class="sub">Turns simulation results into operational numbers: minutes per departure, yearly value, when to call boarding, and which changes actually help.</p>
+          </div>
+          <div class="head-actions"><button class="btn primary" id="planRunBtn">Update estimates</button></div>
+        </div>
+        <div class="plan-layout">
+          <div class="card plan-inputs">
+            <div class="card-head"><h3>Assumptions</h3></div>
+            <div class="form-grid">
+              <label>Current method<select class="select" id="planBase"></select></label>
+              <label>Proposed method<select class="select" id="planCand"></select></label>
+              <label>Cost per minute at gate <span class="unit">USD</span><input class="input mono" type="number" id="planCost" value="100" min="0" step="5" /></label>
+              <label>Departures per day <span class="unit">this aircraft</span><input class="input mono" type="number" id="planDeps" value="120" min="1" /></label>
+              <label>Operating days / year<input class="input mono" type="number" id="planDays" value="365" min="1" max="366" /></label>
+              <label>Boarding time target <span class="unit">min</span><input class="input mono" type="number" id="planTarget" value="15" min="1" step="0.5" /></label>
+              <label>Scheduled departure<input class="input mono" type="time" id="planStd" value="10:00" /></label>
+              <label>Doors closed before STD <span class="unit">min</span><input class="input mono" type="number" id="planDoorBuf" value="5" min="0" /></label>
+              <label>Boarding call → first on board <span class="unit">min</span><input class="input mono" type="number" id="planLead" value="4" min="0" step="0.5" /></label>
+            </div>
+            <p class="hint">Default cost is about US$100/min, close to the A4A 2025 average cost of aircraft block time ($98.41/min). A minute at the gate usually costs less (no fuel burn), but delay knock-on effects cost more. Use your own figure.</p>
+          </div>
+          <div class="plan-out" id="planOut">
+            <div class="empty">
+              <div class="empty-ico"><svg viewBox="0 0 24 24"><path d="M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg></div>
+              <h3>Estimates need an analysis run</h3>
+              <p>Click <b>Update estimates</b>. It runs the Monte Carlo analysis for this scenario and tests the main levers.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- METHODS ---------- -->
+      <section class="view" id="view-methods">
+        <div class="view-head">
+          <div>
+            <h1>Boarding methods</h1>
+            <p class="sub">Each seat map shows the planned boarding sequence on the current aircraft: blue boards first, red boards last.</p>
+          </div>
+          <div class="ramp-legend"><span>first</span><i></i><span>last</span></div>
+        </div>
+        <div class="methods-grid" id="methodsGrid"></div>
+        <div class="card about">
+          <h3>How the model works</h3>
+          <div class="about-grid">
+            <div><b>Agents in a lane.</b> Every aisle is a line of cells, one per row, and only one person fits in a cell. A passenger stowing a bag blocks everyone behind them. These aisle interferences are the main cause of slow boarding.</div>
+            <div><b>Bags and bins.</b> Each row has limited bin space. Stowing gets slower as bins fill. When the bin at your row is full, you use one up to 3 rows away. When nothing is free nearby, the bag is gate-checked.</div>
+            <div><b>Seat shuffles.</b> When someone already seated sits between you and your seat, they have to stand up and step out. The cost is a fixed part plus a part for each neighbour who gets up.</div>
+            <div><b>Real-world effects.</b> Pre-boarding, travel parties who walk on together, passengers who ignore their group call, slow walkers, fare and status tiers, and load factors below 100%.</div>
+            <div><b>Disruptions.</b> Optional irregular events: someone in the wrong seat, a bag sent to the hold, a seat-swap negotiation, crew assistance, a medical incident, a boarding pause, late passengers, and a no-show whose bag must be offloaded. They are drawn per seed, so every method faces the same events. The Risk tab compares clean and disrupted boarding.</div>
+            <div><b>Calibration.</b> With default parameters, the 12-row research cabin reproduces the measured ranking of the Steffen &amp; Hotchkiss (2011) experiment, and each method's mean is within about 13% of its measured time. The experiment's own single-run uncertainty is about 10%.</div>
+            <div><b>Limits.</b> This is a planning model, not a digital twin. It leaves out jet-bridge queues, gate scanning and people passing each other in the aisle. Use it to compare options and understand sensitivities, and validate against your own boarding timestamps.</div>
+          </div>
+          <p class="refs">References: Steffen, J.H. (2008) <i>Optimal boarding method for airline passengers</i>, JATM 14(3) · Steffen &amp; Hotchkiss (2011) <i>Experimental test of airplane boarding methods</i>, JATM · van den Briel et al. (2005) <i>America West Airlines develops efficient boarding strategies</i>, Interfaces 35(3) · Van Landeghem &amp; Beuselinck (2002), EJOR 142(2) · Airlines for America, <i>U.S. Passenger Carrier Delay Costs</i> (2025).</p>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="scrim" id="scrim"></div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="src/aircraft.js"></script>
+  <script src="src/strategies.js"></script>
+  <script src="src/engine.js"></script>
+  <script src="src/renderer.js"></script>
+  <script src="src/charts.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "boarding-lab",
+  "version": "1.0.0",
+  "description": "Agent-based aircraft boarding simulator: race boarding methods, run Monte Carlo analyses and plan turnarounds.",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "test": "node test/calibrate.js 60 && node test/app-smoke.js",
+    "calibrate": "node test/calibrate.js 200"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

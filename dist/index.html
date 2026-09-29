@@ -1,0 +1,3467 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Boarding Lab: aircraft boarding simulator</title>
+  <meta name="description" content="Compare airline boarding methods side by side on real aircraft layouts. Agent-based simulation calibrated to published boarding experiments, with Monte Carlo analysis and a turnaround planner." />
+  <meta property="og:title" content="Boarding Lab: aircraft boarding simulator" />
+  <meta property="og:description" content="Race Steffen, WilMA, back-to-front and more on A320, 737, 787, A350, 777 and A380 cabins." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563EB'/%3E%3Cpath d='M7 18l18-7-4 9-5-1-3 5-1-5z' fill='white'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+  <style>
+/* Boarding Lab — design tokens + components */
+:root {
+  --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f9fafb;
+  --surface-3: #f2f4f7;
+  --border: #e4e7ec;
+  --border-strong: #d0d5dd;
+  --text: #101828;
+  --text-2: #475467;
+  --text-3: #98a2b3;
+  --accent: #2563eb;
+  --accent-2: #1d4ed8;
+  --accent-soft: #eff4ff;
+  --good: #079455;
+  --good-soft: #ecfdf3;
+  --bad: #d92d20;
+  --bad-soft: #fef3f2;
+  --warn: #dc6803;
+  --warn-soft: #fffaeb;
+
+  --cabin-fuselage: #ffffff;
+  --cabin-stroke: #d0d5dd;
+  --cabin-aisle: #f2f4f7;
+  --seat-empty: #e4e7ec;
+  --seat-none: #f9fafb;
+  --agent-walk: #2563eb;
+  --agent-blocked: #ef4444;
+  --agent-stow: #f59e0b;
+  --agent-shuffle: #a855f7;
+  --agent-stand: #f59e0b;
+  --agent-incident: #dc2626;
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-lg: 0 12px 24px -6px rgba(16, 24, 40, 0.14), 0 4px 8px -4px rgba(16, 24, 40, 0.06);
+  --top-h: 56px;
+  --side-w: 308px;
+}
+
+[data-theme='dark'] {
+  --bg: #0b0d12;
+  --surface: #12151c;
+  --surface-2: #161a22;
+  --surface-3: #1c212b;
+  --border: #242a36;
+  --border-strong: #313847;
+  --text: #f2f4f7;
+  --text-2: #b4bccb;
+  --text-3: #6f7a8d;
+  --accent: #5b8cff;
+  --accent-2: #7aa2ff;
+  --accent-soft: #172241;
+  --good: #3ccb7f;
+  --good-soft: #0f2a1d;
+  --bad: #f97066;
+  --bad-soft: #3a1512;
+  --warn: #fdb022;
+  --warn-soft: #33250b;
+  --cabin-fuselage: #161a22;
+  --cabin-stroke: #313847;
+  --cabin-aisle: #0f1218;
+  --seat-empty: #262c38;
+  --seat-none: #141820;
+  --agent-walk: #5b8cff;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 24px -6px rgba(0, 0, 0, 0.6);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11', 'ss01';
+}
+button, input, select { font: inherit; color: inherit; }
+/* icon svgs only; charts (.chart) have their own sizing */
+svg:not(.chart) { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--text-3); }
+.sm { font-size: 12px; }
+[hidden] { display: none !important; }
+
+/* ---------- app shell ---------- */
+.app {
+  display: grid;
+  grid-template-columns: var(--side-w) 1fr;
+  grid-template-rows: var(--top-h) 1fr;
+  grid-template-areas: 'top top' 'side main';
+  height: 100vh;
+}
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  z-index: 20;
+}
+.brand { display: flex; align-items: center; gap: 10px; min-width: calc(var(--side-w) - 32px); }
+.logo svg { width: 28px; height: 28px; stroke: none; }
+.logo rect { fill: var(--accent); }
+.logo path { fill: #fff; }
+.brand-name { font-weight: 700; letter-spacing: -0.01em; font-size: 15px; }
+.tabs { display: flex; gap: 4px; height: 100%; }
+.tabs button {
+  background: none; border: 0; padding: 0 12px; height: 100%; cursor: pointer;
+  color: var(--text-2); font-weight: 500; position: relative;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button.active { color: var(--text); }
+.tabs button.active::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px; }
+.top-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+.sidebar {
+  grid-area: side;
+  overflow-y: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 8px 0 16px;
+}
+.main { grid-area: main; overflow-y: auto; min-width: 0; }
+.view { display: none; padding: 24px 28px 40px; max-width: 1600px; }
+.view.active { display: block; }
+
+/* ---------- sidebar ---------- */
+.side-section { padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.side-label {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-3); margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;
+}
+.side-sublabel { font-size: 12px; font-weight: 500; color: var(--text-2); margin: 12px 0 6px; }
+.count-badge { font-family: var(--mono); letter-spacing: 0; background: var(--surface-3); color: var(--text-2); padding: 1px 6px; border-radius: 6px; }
+.hint { font-size: 12px; color: var(--text-3); margin: 6px 0 0; }
+.ac-spec { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.ac-spec span { font-size: 11.5px; background: var(--surface-3); color: var(--text-2); padding: 2px 8px; border-radius: 6px; }
+.ac-spec p { flex-basis: 100%; margin: 4px 0 0; font-size: 12px; color: var(--text-3); }
+
+.select, .input {
+  width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--border-strong);
+  background: var(--surface); border-radius: var(--radius-sm); outline: none; box-shadow: var(--shadow-sm);
+}
+.select.sm { height: 30px; width: auto; font-size: 13px; }
+.select:focus, .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+  border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface);
+  font-size: 12.5px; font-weight: 500; cursor: pointer; user-select: none; color: var(--text-2);
+}
+.chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.chip .pos { font-size: 11px; color: var(--text-3); font-weight: 400; }
+
+.strat-list { display: flex; flex-direction: column; gap: 2px; }
+.strat-item {
+  display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer;
+  user-select: none; border: 1px solid transparent;
+}
+.strat-item:hover { background: var(--surface-2); }
+.strat-item.on { background: var(--surface-2); border-color: var(--border); }
+.strat-item.disabled { opacity: 0.45; cursor: not-allowed; }
+.strat-item .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.strat-item .nm { flex: 1; font-size: 13px; font-weight: 500; }
+.strat-item .cb {
+  width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--border-strong); flex: none;
+  display: grid; place-items: center; background: var(--surface);
+}
+.strat-item.on .cb { background: var(--accent); border-color: var(--accent); }
+.strat-item.on .cb::after { content: ''; width: 8px; height: 4px; border: 2px solid #fff; border-top: 0; border-right: 0; transform: rotate(-45deg) translate(1px, -1px); }
+
+.param { margin: 2px 0 12px; }
+.param-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.param-top label { font-size: 13px; font-weight: 500; color: var(--text); }
+.param-top .val { font-family: var(--mono); font-size: 12px; color: var(--accent); font-weight: 600; }
+.param small { display: block; color: var(--text-3); font-size: 11.5px; margin-top: 2px; }
+input[type='range'] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; margin: 0;
+}
+input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(var(--accent), var(--accent)) 0 / var(--p, 50%) 100% no-repeat, var(--surface-3); }
+input[type='range']::-moz-range-track { height: 4px; border-radius: 4px; background: var(--surface-3); }
+input[type='range']::-moz-range-progress { height: 4px; border-radius: 4px; background: var(--accent); }
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+  background: var(--surface); border: 2px solid var(--accent); box-shadow: var(--shadow);
+}
+input[type='range']::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); }
+
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; cursor: pointer; }
+.toggle-row b { display: block; font-weight: 500; font-size: 13px; }
+.toggle-row small { display: block; color: var(--text-3); font-size: 11.5px; }
+.switch {
+  -webkit-appearance: none; appearance: none; width: 34px; height: 20px; border-radius: 999px; flex: none;
+  background: var(--border-strong); position: relative; cursor: pointer; transition: background 0.15s;
+}
+.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: var(--shadow); transition: transform 0.15s; }
+.switch:checked { background: var(--accent); }
+.switch:checked::after { transform: translateX(14px); }
+
+.advanced summary { cursor: pointer; list-style: none; margin-bottom: 0; }
+.advanced[open] summary { margin-bottom: 10px; }
+.advanced summary::after { content: '+'; font-size: 14px; }
+.advanced[open] summary::after { content: '–'; }
+.seed-row { display: flex; gap: 12px; align-items: flex-end; justify-content: space-between; }
+.seed-row .side-label { margin-bottom: 2px; }
+.seed-row .hint { margin: 0; }
+.seed-ctrl { display: flex; gap: 6px; }
+.seed-ctrl .input { width: 90px; }
+.side-foot { padding: 14px 18px; font-size: 12px; color: var(--text-3); }
+svg .fill { fill: currentColor; stroke: none; }
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 14px;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface);
+  font-weight: 600; font-size: 13px; cursor: pointer; box-shadow: var(--shadow-sm); white-space: nowrap;
+}
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { background: var(--accent-2); }
+.btn.ghost { box-shadow: none; }
+.btn.sm { height: 30px; padding: 0 10px; font-size: 12.5px; }
+.btn.full { width: 100%; }
+.btn svg { width: 16px; height: 16px; }
+.btn:disabled { opacity: 0.55; cursor: progress; }
+.icon-btn {
+  width: 34px; height: 34px; display: grid; place-items: center; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface); cursor: pointer; color: var(--text-2);
+}
+.icon-btn:hover { background: var(--surface-2); color: var(--text); }
+[data-theme='light'] .i-sun, [data-theme='dark'] .i-moon { display: none; }
+.only-mobile { display: none; }
+
+.seg { display: inline-flex; background: var(--surface-3); border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button {
+  border: 0; background: transparent; height: 26px; padding: 0 10px; border-radius: 6px; cursor: pointer;
+  font-size: 12.5px; font-weight: 500; color: var(--text-2); white-space: nowrap;
+}
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.seg.full { display: flex; width: 100%; margin: 2px 0 2px; }
+.seg.full button { flex: 1; }
+.param-top a { font-size: 12px; }
+.mini-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+
+/* ---------- views ---------- */
+.view-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 18px; flex-wrap: wrap; }
+.view-head h1 { font-size: 22px; letter-spacing: -0.02em; margin: 0 0 4px; font-weight: 700; }
+.sub { margin: 0; color: var(--text-2); max-width: 760px; }
+.sub.sm { font-size: 12.5px; margin: -4px 0 10px; }
+.head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 14px 16px; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.card { min-width: 0; }
+.card-head h3 { margin: 0; font-size: 13.5px; font-weight: 600; }
+
+/* ---------- simulate ---------- */
+.sim-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.lanes { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lane-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; transition: border-color 0.2s, box-shadow 0.2s; }
+.lane-card.winner { border-color: var(--good); box-shadow: 0 0 0 3px var(--good-soft); }
+.lane-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px 8px; }
+.lane-head .sw { width: 10px; height: 10px; border-radius: 3px; }
+.lane-name { font-weight: 600; font-size: 13.5px; }
+.lane-tag { font-family: var(--mono); font-size: 10.5px; color: var(--text-3); margin-left: 6px; }
+.lane-stats { margin-left: auto; display: flex; align-items: center; gap: 14px; font-size: 12.5px; color: var(--text-2); }
+.lane-stats .clock { font-family: var(--mono); font-weight: 600; font-size: 15px; color: var(--text); min-width: 52px; text-align: right; }
+.lane-stats .seatcount { font-family: var(--mono); }
+.badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); white-space: nowrap; }
+.badge.good { background: var(--good-soft); color: var(--good); }
+.badge.bad { background: var(--bad-soft); color: var(--bad); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.accent { background: var(--accent-soft); color: var(--accent); }
+.lane-progress { height: 3px; background: var(--surface-3); margin: 0 14px; border-radius: 3px; overflow: hidden; }
+.lane-progress div { height: 100%; width: 0; border-radius: 3px; }
+.canvas-wrap { padding: 8px 8px 4px; }
+.group-legend { display: none; flex-wrap: wrap; gap: 6px 14px; padding: 2px 14px 10px; font-size: 11.5px; color: var(--text-2); }
+[data-color='group'] .group-legend { display: flex; }
+.group-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.group-legend i { width: 9px; height: 9px; border-radius: 2px; }
+.calls { list-style: none; margin: 0; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--text-2); display: grid; gap: 2px; }
+.calls li::marker { color: var(--text-3); font-family: var(--mono); font-size: 11px; }
+.canvas-wrap canvas { display: block; }
+
+.insights { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 0; }
+.table-wrap { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.table th { text-align: right; font-weight: 500; color: var(--text-3); font-size: 11.5px; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.table td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.table th:first-child, .table td:first-child { text-align: left; font-family: var(--font); }
+.table tr:last-child td { border-bottom: 0; }
+.table.compact td, .table.compact th { padding: 6px 5px; }
+.table .nm { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 12.5px; }
+.table .nm i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.table tr.best td { background: var(--good-soft); }
+.delta-good { color: var(--good); }
+.delta-bad { color: var(--bad); }
+.warn-text { color: var(--warn); }
+
+.chart-box { width: 100%; }
+/* charts: drawn 1:1 at container width. Reset the icon-svg stroke so text isn't outlined. */
+.chart { width: 100%; max-width: 100%; height: auto; display: block; overflow: visible; stroke: none; }
+.chart text { stroke: none; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .tick { fill: var(--text-3); font-size: 10.5px; font-family: var(--font); }
+.chart .label { fill: var(--text); font-size: 12px; font-weight: 500; font-family: var(--font); }
+.chart .value { fill: var(--text-2); font-size: 11.5px; font-family: var(--mono); }
+.chart .cursor { stroke: var(--text); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.5; }
+.chart .target { stroke: var(--bad); stroke-width: 1.2; stroke-dasharray: 5 4; }
+.placeholder { color: var(--text-3); font-size: 13px; padding: 30px 0; text-align: center; }
+
+.events { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
+.events li { display: flex; gap: 10px; align-items: baseline; padding: 6px 4px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.events li:hover { background: var(--surface-2); }
+.events li.future { opacity: 0.45; }
+.events li .t { font-family: var(--mono); color: var(--text-3); font-size: 11.5px; min-width: 38px; }
+.events li i { width: 8px; height: 8px; border-radius: 2px; flex: none; transform: translateY(1px); }
+
+.transport {
+  position: sticky; bottom: 12px; z-index: 5; margin-top: 16px; display: flex; align-items: center; gap: 12px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px);
+  border: 1px solid var(--border); border-radius: 14px; padding: 8px 12px; box-shadow: var(--shadow-lg);
+}
+.play-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--accent); color: #fff; cursor: pointer;
+  display: grid; place-items: center; flex: none; box-shadow: 0 4px 10px -2px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.play-btn svg { fill: currentColor; stroke: none; width: 18px; height: 18px; }
+.play-btn .i-pause, .playing .play-btn .i-play { display: none; }
+.playing .play-btn .i-pause { display: block; }
+.time { font-size: 13px; min-width: 42px; text-align: center; }
+.scrubber { position: relative; flex: 1; height: 28px; cursor: pointer; touch-action: none; outline: none; }
+.scrubber .track { position: absolute; left: 0; right: 0; top: 12px; height: 4px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
+.scrubber .fill { height: 100%; width: 0; background: var(--accent); }
+.scrubber .thumb { position: absolute; top: 7px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); box-shadow: var(--shadow); left: 0; }
+.scrubber:focus-visible .thumb { box-shadow: 0 0 0 4px var(--accent-soft); }
+.markers { position: absolute; inset: 0; pointer-events: none; }
+.markers i { position: absolute; top: 5px; width: 3px; height: 18px; margin-left: -1.5px; border-radius: 2px; }
+.markers i.half { top: 10px; height: 8px; width: 2px; opacity: 0.6; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 16px; padding: 12px 4px 0; font-size: 12px; color: var(--text-2); align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lg { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.lg.sq { border-radius: 2px; background: var(--seat-empty); outline-offset: -1px; }
+.lg.bar { width: 14px; height: 3px; border-radius: 2px; background: linear-gradient(90deg, #22c55e, #f59e0b, #ef4444); }
+.kbd-hint { margin-left: auto; color: var(--text-3); }
+kbd { font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--surface); }
+
+/* ---------- analyze ---------- */
+.progress-line { height: 3px; background: transparent; border-radius: 3px; overflow: hidden; margin: -8px 0 14px; }
+.progress-line div { height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpi { min-width: 0; }
+.kpi .sw { width: 8px; height: 8px; border-radius: 2px; }
+.kpi .k-value { overflow-wrap: anywhere; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow-sm); }
+.kpi .k-label { font-size: 12px; color: var(--text-2); font-weight: 500; display: flex; align-items: center; gap: 6px; }
+.kpi .k-value { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+.kpi .k-foot { font-size: 12px; color: var(--text-3); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 16px; }
+.span-2 { grid-column: 1 / -1; }
+.empty { text-align: center; padding: 60px 20px; border: 1px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface); }
+.empty h3 { margin: 12px 0 4px; font-size: 15px; }
+.empty p { color: var(--text-2); margin: 0 auto 16px; max-width: 460px; }
+.empty-ico { width: 44px; height: 44px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; margin: 0 auto; }
+.empty-ico svg { width: 22px; height: 22px; }
+
+/* ---------- risk ---------- */
+.risk-catalogue { margin-bottom: 16px; }
+.risk-table td, .risk-table th { vertical-align: middle; }
+.risk-table td:first-child { white-space: normal; min-width: 260px; }
+.risk-table .ev b { display: block; font-weight: 600; font-size: 12.5px; }
+.risk-table .ev small { display: block; color: var(--text-3); font-size: 11.5px; line-height: 1.35; max-width: 460px; }
+.risk-table tr.off td:not(:first-child), .risk-table tr.off .ev { opacity: 0.45; }
+.risk-table .ev-row { display: flex; gap: 10px; align-items: flex-start; }
+.risk-table input[type='checkbox'] { margin-top: 3px; accent-color: var(--accent); }
+.num-in { display: inline-flex; align-items: center; gap: 4px; }
+.num-in input { width: 72px; height: 28px; padding: 0 6px; text-align: right; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); font-family: var(--mono); font-size: 12px; }
+.num-in input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.num-in span { color: var(--text-3); font-size: 11px; font-family: var(--font); }
+.scope { font-family: var(--font); font-size: 11px; color: var(--text-2); background: var(--surface-3); padding: 2px 7px; border-radius: 6px; }
+
+/* ---------- plan ---------- */
+.plan-layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 16px; align-items: start; }
+.form-grid { display: grid; gap: 12px; }
+.form-grid label { display: grid; gap: 5px; font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+.form-grid .unit { color: var(--text-3); font-weight: 400; margin-left: 4px; }
+.plan-out { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.plan-kpis { margin: 0; }
+.callout { display: flex; gap: 12px; padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); }
+.callout .ico { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex: none; }
+.callout.info .ico { background: var(--accent-soft); color: var(--accent); }
+.callout.warn .ico { background: var(--warn-soft); color: var(--warn); }
+.callout.good .ico { background: var(--good-soft); color: var(--good); }
+.callout h4 { margin: 0 0 3px; font-size: 13.5px; }
+.callout p { margin: 0; color: var(--text-2); font-size: 13px; }
+.timeline-plan { display: grid; gap: 10px; }
+.tl-row { display: grid; grid-template-columns: 130px 1fr; gap: 12px; align-items: center; font-size: 12.5px; }
+.tl-bar { position: relative; height: 26px; background: var(--surface-3); border-radius: 6px; }
+.tl-seg { position: absolute; top: 0; bottom: 0; border-radius: 6px; display: flex; align-items: center; padding: 0 8px; color: #fff; font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; }
+.tl-axis { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--text-3); margin-left: 142px; }
+.levers { display: flex; flex-direction: column; }
+.lever { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 2px; border-bottom: 1px solid var(--border); }
+.lever:last-child { border-bottom: 0; }
+.lever b { font-size: 13px; font-weight: 600; display: block; line-height: 1.3; }
+.lever small { display: block; color: var(--text-3); font-size: 12px; line-height: 1.35; margin-top: 1px; }
+.lever .d { font-family: var(--mono); font-weight: 600; font-size: 13px; white-space: nowrap; padding: 3px 8px; border-radius: 6px; background: var(--surface-3); }
+.lever .d.delta-good { background: var(--good-soft); }
+.lever .d.delta-bad { background: var(--bad-soft); }
+
+/* ---------- methods ---------- */
+.methods-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.method { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow-sm); }
+.method-top { display: flex; align-items: center; gap: 10px; }
+.method-top .sw { width: 12px; height: 12px; border-radius: 3px; }
+.method-top h3 { margin: 0; font-size: 14.5px; flex: 1; }
+.method .tagline { margin: 0; color: var(--text-2); font-size: 13px; }
+.method .pattern { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px; }
+.method .desc { font-size: 12.5px; color: var(--text-2); margin: 0; }
+.pc { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; }
+.pc ul { margin: 0; padding-left: 16px; color: var(--text-2); }
+.pc b { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); }
+.method-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--border); padding-top: 10px; margin-top: auto; font-size: 12px; color: var(--text-3); }
+.dots { display: inline-flex; gap: 3px; }
+.dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+.dots i.on { background: var(--accent); }
+.ramp-legend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+.ramp-legend i { width: 140px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #1e3a8a, #2563eb, #06b6d4, #10b981, #84cc16, #eab308, #f97316, #ef4444); }
+.about h3 { margin: 0 0 12px; font-size: 15px; }
+.about-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; font-size: 13px; color: var(--text-2); }
+.about-grid b { color: var(--text); }
+.refs { font-size: 12px; color: var(--text-3); margin: 16px 0 0; }
+
+/* ---------- toast / scrim ---------- */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+  background: var(--text); color: var(--surface); padding: 10px 16px; border-radius: 10px; font-size: 13px; font-weight: 500;
+  box-shadow: var(--shadow-lg); transition: all 0.2s; z-index: 100;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.scrim { display: none; }
+
+/* ---------- responsive ---------- */
+/* Layout follows the width of the main panel (not the window), so it also works in narrow embeds. */
+.main { container-type: inline-size; container-name: main; }
+@container main (max-width: 1100px) {
+  .sim-layout { grid-template-columns: 1fr; }
+  .insights { position: static; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+  .plan-layout { grid-template-columns: 1fr; }
+  .about-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container main (max-width: 640px) {
+  .about-grid, .pc { grid-template-columns: 1fr; }
+  .tl-row { grid-template-columns: 96px 1fr; }
+  .tl-axis { margin-left: 108px; }
+  .view-head .head-actions { width: 100%; }
+}
+@media (max-width: 1280px) {
+  .sim-layout { grid-template-columns: 1fr; }
+  .insights { position: static; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .about-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1080px) {
+  .plan-layout { grid-template-columns: 1fr; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; grid-template-areas: 'top' 'main'; }
+  .sidebar { position: fixed; top: var(--top-h); left: 0; bottom: 0; width: min(340px, 90vw); z-index: 30; transform: translateX(-100%); transition: transform 0.2s; box-shadow: var(--shadow-lg); }
+  .app.side-open .sidebar { transform: none; }
+  .app.side-open ~ .scrim { display: block; position: fixed; inset: var(--top-h) 0 0 0; background: rgba(0, 0, 0, 0.3); z-index: 25; }
+  .only-mobile { display: grid; }
+  .brand { min-width: 0; }
+  .tabs { overflow-x: auto; }
+  .view { padding: 16px 14px 32px; }
+  .grid-2, .levers, .about-grid, .pc { grid-template-columns: 1fr; }
+  .span-2 { grid-column: auto; }
+  .kbd-hint { display: none; }
+  .transport { flex-wrap: wrap; }
+  .transport .scrubber { order: 10; flex-basis: 100%; }
+  .lane-stats .seatcount { display: none; }
+}
+@media (max-width: 560px) {
+  .kpis, .plan-kpis { grid-template-columns: 1fr; }
+  .tabs button { padding: 0 8px; }
+  .brand-name { display: none; }
+}
+
+</style>
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- ============ TOP BAR ============ -->
+    <header class="topbar">
+      <button class="icon-btn only-mobile" id="menuBtn" aria-label="Open settings">
+        <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="brand">
+        <span class="logo"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8"/><path d="M7 18l18-7-4 9-5-1-3 5-1-5z"/></svg></span>
+        <span class="brand-name">Boarding Lab</span>
+      </div>
+      <nav class="tabs" role="tablist" id="tabs">
+        <button role="tab" data-view="simulate" class="active">Simulate</button>
+        <button role="tab" data-view="analyze">Analyze</button>
+        <button role="tab" data-view="risk">Risk</button>
+        <button role="tab" data-view="plan">Plan</button>
+        <button role="tab" data-view="methods">Methods</button>
+      </nav>
+      <div class="top-actions">
+        <button class="icon-btn" id="themeBtn" aria-label="Toggle dark mode">
+          <svg viewBox="0 0 24 24" class="i-moon"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          <svg viewBox="0 0 24 24" class="i-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ============ SIDEBAR ============ -->
+    <aside class="sidebar" id="sidebar">
+      <section class="side-section">
+        <div class="side-label">Scenario</div>
+        <select id="presetSelect" class="select"></select>
+        <p class="hint" id="presetHint"></p>
+      </section>
+
+      <section class="side-section">
+        <div class="side-label">Aircraft</div>
+        <select id="aircraftSelect" class="select"></select>
+        <div class="ac-spec" id="acSpec"></div>
+        <div class="side-sublabel">Boarding doors</div>
+        <div class="chips" id="doorChips"></div>
+      </section>
+
+      <section class="side-section">
+        <div class="side-label">Methods to compare <span class="count-badge" id="stratCount">0/4</span></div>
+        <div class="strat-list" id="stratList"></div>
+      </section>
+
+      <section class="side-section">
+        <div class="side-label">Passengers</div>
+        <div id="paxParams"></div>
+      </section>
+
+      <section class="side-section">
+        <div class="side-label">Operations</div>
+        <label class="toggle-row">
+          <span><b>Pre-boarding</b><small>Passengers needing assistance, families, then premium cabin</small></span>
+          <input type="checkbox" id="preboardToggle" class="switch" />
+        </label>
+        <div class="param">
+          <div class="param-top"><label>Disruptions</label><a href="#" data-goto="risk" class="sm">Risk analysis →</a></div>
+          <div class="seg full" id="riskSeg" role="radiogroup" aria-label="Disruptions">
+            <button data-v="off" class="on">Off</button><button data-v="realistic">Realistic</button><button data-v="bad">Bad day</button>
+          </div>
+          <small>Wrong seats, bags sent to the hold, boarding pauses, late passengers, medical incidents</small>
+        </div>
+        <div id="opsParams"></div>
+      </section>
+
+      <details class="side-section advanced">
+        <summary class="side-label">Behaviour model <span class="muted">(advanced)</span></summary>
+        <div id="advParams"></div>
+        <button class="btn ghost sm full" id="resetModelBtn">Reset to calibrated defaults</button>
+      </details>
+
+      <section class="side-section seed-row">
+        <div>
+          <div class="side-label">Random seed</div>
+          <p class="hint">Same seed = the same passengers and bags in every method.</p>
+        </div>
+        <div class="seed-ctrl">
+          <input type="number" id="seedInput" class="input mono" min="1" max="999999" />
+          <button class="icon-btn" id="diceBtn" title="New passengers" aria-label="Randomise seed">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.2" class="fill"/><circle cx="15.5" cy="15.5" r="1.2" class="fill"/><circle cx="15.5" cy="8.5" r="1.2" class="fill"/><circle cx="8.5" cy="15.5" r="1.2" class="fill"/></svg>
+          </button>
+        </div>
+      </section>
+      <footer class="side-foot">
+        Model calibrated against the Steffen &amp; Hotchkiss (2011) boarding experiment. <a href="#" data-goto="methods">Method guide →</a>
+      </footer>
+    </aside>
+
+    <!-- ============ MAIN ============ -->
+    <main class="main" id="main">
+      <!-- ---------- SIMULATE ---------- -->
+      <section class="view active" id="view-simulate">
+        <div class="view-head">
+          <div>
+            <h1 id="simTitle">Boarding simulation</h1>
+            <p class="sub" id="simSub"></p>
+          </div>
+          <div class="head-actions">
+            <div class="seg" id="colorBySeg" role="radiogroup" aria-label="Colour seats by">
+              <button data-v="status" class="on">Status</button>
+              <button data-v="order">Boarding order</button>
+              <button data-v="group">Groups</button>
+            </div>
+            <label class="mini-toggle"><input type="checkbox" id="binsToggle" checked /> Bins</label>
+          </div>
+        </div>
+
+        <div class="sim-layout">
+          <div class="lanes" id="lanes"></div>
+          <aside class="insights">
+            <div class="card">
+              <div class="card-head"><h3>Live comparison</h3><span class="muted sm" id="liveClock">t = 0:00</span></div>
+              <div class="table-wrap"><table class="table compact" id="liveTable"></table></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Passengers seated</h3></div>
+              <div id="liveChart" class="chart-box"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Events</h3><span class="muted sm">click to jump</span></div>
+              <ul class="events" id="eventList"></ul>
+            </div>
+          </aside>
+        </div>
+
+        <div class="transport" id="transport">
+          <button class="play-btn" id="playBtn" aria-label="Play">
+            <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
+            <svg viewBox="0 0 24 24" class="i-pause"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+          </button>
+          <button class="icon-btn" id="restartBtn" aria-label="Restart" title="Restart (Home)">
+            <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></svg>
+          </button>
+          <span class="time mono" id="tNow">0:00</span>
+          <div class="scrubber" id="scrubber" role="slider" aria-label="Timeline" tabindex="0">
+            <div class="track"><div class="fill" id="scrubFill"></div></div>
+            <div class="markers" id="scrubMarkers"></div>
+            <div class="thumb" id="scrubThumb"></div>
+          </div>
+          <span class="time mono muted" id="tEnd">0:00</span>
+          <div class="seg speed" id="speedSeg" aria-label="Playback speed">
+            <button data-v="1">1×</button><button data-v="5">5×</button><button data-v="10" class="on">10×</button><button data-v="25">25×</button><button data-v="60">60×</button>
+          </div>
+        </div>
+        <div class="legend">
+          <span><i class="lg" style="background:var(--agent-walk)"></i>Walking</span>
+          <span><i class="lg" style="background:var(--agent-blocked)"></i>Blocked in aisle</span>
+          <span><i class="lg" style="background:var(--agent-stow)"></i>Stowing bag</span>
+          <span><i class="lg" style="background:var(--agent-shuffle)"></i>Seat shuffle</span>
+          <span><i class="lg" style="background:var(--agent-incident)"></i>Disruption</span>
+          <span><i class="lg sq" style="outline:2px solid var(--agent-stand)"></i>Neighbour standing up</span>
+          <span><i class="lg bar"></i>Bin fill</span>
+          <span class="kbd-hint"><kbd>Space</kbd> play · <kbd>←</kbd><kbd>→</kbd> ±10 s</span>
+        </div>
+      </section>
+
+      <!-- ---------- ANALYZE ---------- -->
+      <section class="view" id="view-analyze">
+        <div class="view-head">
+          <div>
+            <h1>Monte Carlo analysis</h1>
+            <p class="sub">A single boarding is noisy. This runs the same scenario many times with different passengers, so you can compare methods on their full distribution rather than one lucky run.</p>
+          </div>
+          <div class="head-actions">
+            <div class="seg" id="mcScopeSeg"><button data-v="all" class="on">All methods</button><button data-v="selected">Selected</button></div>
+            <div class="seg" id="mcRepsSeg"><button data-v="25">25</button><button data-v="50" class="on">50</button><button data-v="100">100</button><button data-v="200">200</button></div>
+            <button class="btn primary" id="mcRunBtn">Run analysis</button>
+          </div>
+        </div>
+        <div class="progress-line" id="mcProgress"><div></div></div>
+        <div class="empty" id="mcEmpty">
+          <div class="empty-ico"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-7"/></svg></div>
+          <h3>No analysis yet</h3>
+          <p>Run the analysis to get median, p90 and win rate for every method in this scenario.</p>
+          <button class="btn primary" data-action="mc">Run 50 simulations per method</button>
+        </div>
+        <div id="mcResults" hidden>
+          <div class="kpis" id="mcKpis"></div>
+          <div class="grid-2">
+            <div class="card span-2">
+              <div class="card-head"><h3>Boarding time distribution</h3><span class="muted sm">box = p25–p75 · whiskers = p10–p90 · line = median · ○ = mean</span></div>
+              <div id="mcBox" class="chart-box"></div>
+            </div>
+            <div class="card span-2">
+              <div class="card-head"><h3>Results</h3><button class="btn ghost sm" id="csvBtn">Download CSV</button></div>
+              <div class="table-wrap"><table class="table" id="mcTable"></table></div>
+            </div>
+            <div class="card span-2">
+              <div class="card-head">
+                <h3>Sensitivity</h3>
+                <div class="head-actions">
+                  <select class="select sm" id="sensParam">
+                    <option value="carryOnShare">Roller-bag share</option>
+                    <option value="loadFactor">Load factor</option>
+                    <option value="compliance">Group discipline</option>
+                    <option value="partyShare">Travel parties</option>
+                    <option value="headway">Door flow (s/pax)</option>
+                    <option value="binCapacity">Bin space per seat</option>
+                  </select>
+                  <button class="btn sm" id="sensRunBtn">Run sweep</button>
+                </div>
+              </div>
+              <p class="sub sm">How each selected method's mean boarding time changes as one factor varies, with everything else held fixed.</p>
+              <div id="sensChart" class="chart-box"><div class="placeholder">Pick a factor and run the sweep.</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- RISK ---------- -->
+      <section class="view" id="view-risk">
+        <div class="view-head">
+          <div>
+            <h1>Disruption risk</h1>
+            <p class="sub">Each method boards the same passengers twice: once in clean conditions and once with irregular events drawn at the rates below. The gap between the two is the buffer your schedule has to absorb.</p>
+          </div>
+          <div class="head-actions">
+            <div class="seg" id="riskLevelSeg"><button data-v="realistic" class="on">Realistic day</button><button data-v="bad">Bad day</button></div>
+            <div class="seg" id="riskRepsSeg"><button data-v="25">25</button><button data-v="50" class="on">50</button><button data-v="100">100</button></div>
+            <button class="btn primary" id="riskRunBtn">Run risk analysis</button>
+          </div>
+        </div>
+        <div class="progress-line" id="riskProgress"><div></div></div>
+        <div class="card risk-catalogue">
+          <div class="card-head">
+            <h3>Disruption catalogue</h3>
+            <div class="head-actions"><span class="muted sm">Rates are planning assumptions. Replace them with your own irregularity data.</span><button class="btn ghost sm" id="riskResetBtn">Reset rates</button></div>
+          </div>
+          <div class="table-wrap"><table class="table risk-table" id="riskTable"></table></div>
+        </div>
+        <div class="empty" id="riskEmpty">
+          <div class="empty-ico"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
+          <h3>No risk analysis yet</h3>
+          <p>Compares the methods selected in the sidebar with disruptions switched off and on, and measures how much each event contributes to the delay.</p>
+          <button class="btn primary" data-action="risk">Run risk analysis</button>
+        </div>
+        <div id="riskResults" hidden>
+          <div class="kpis" id="riskKpis"></div>
+          <div class="grid-2">
+            <div class="card span-2">
+              <div class="card-head"><h3>Clean vs disrupted</h3><span class="muted sm">grey = clean · colour = with disruptions · whiskers p10–p90</span></div>
+              <div id="riskBox" class="chart-box"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>What drives the delay</h3><span class="muted sm" id="riskFocusLabel"></span></div>
+              <div id="riskTornado" class="chart-box"></div>
+              <p class="hint">Mean extra time per flight with only that event switched on. Red bars add to boarding time. The orange bar (offload) adds to door-close time instead.</p>
+            </div>
+            <div class="card">
+              <div class="card-head"><h3>Robustness by method</h3><span class="muted sm">Δ p90 = buffer to plan</span></div>
+              <div class="table-wrap"><table class="table" id="riskMethodTable"></table></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- PLAN ---------- -->
+      <section class="view" id="view-plan">
+        <div class="view-head">
+          <div>
+            <h1>Turnaround planner</h1>
+            <p class="sub">Turns simulation results into operational numbers: minutes per departure, yearly value, when to call boarding, and which changes actually help.</p>
+          </div>
+          <div class="head-actions"><button class="btn primary" id="planRunBtn">Update estimates</button></div>
+        </div>
+        <div class="plan-layout">
+          <div class="card plan-inputs">
+            <div class="card-head"><h3>Assumptions</h3></div>
+            <div class="form-grid">
+              <label>Current method<select class="select" id="planBase"></select></label>
+              <label>Proposed method<select class="select" id="planCand"></select></label>
+              <label>Cost per minute at gate <span class="unit">USD</span><input class="input mono" type="number" id="planCost" value="100" min="0" step="5" /></label>
+              <label>Departures per day <span class="unit">this aircraft</span><input class="input mono" type="number" id="planDeps" value="120" min="1" /></label>
+              <label>Operating days / year<input class="input mono" type="number" id="planDays" value="365" min="1" max="366" /></label>
+              <label>Boarding time target <span class="unit">min</span><input class="input mono" type="number" id="planTarget" value="15" min="1" step="0.5" /></label>
+              <label>Scheduled departure<input class="input mono" type="time" id="planStd" value="10:00" /></label>
+              <label>Doors closed before STD <span class="unit">min</span><input class="input mono" type="number" id="planDoorBuf" value="5" min="0" /></label>
+              <label>Boarding call → first on board <span class="unit">min</span><input class="input mono" type="number" id="planLead" value="4" min="0" step="0.5" /></label>
+            </div>
+            <p class="hint">Default cost is about US$100/min, close to the A4A 2025 average cost of aircraft block time ($98.41/min). A minute at the gate usually costs less (no fuel burn), but delay knock-on effects cost more. Use your own figure.</p>
+          </div>
+          <div class="plan-out" id="planOut">
+            <div class="empty">
+              <div class="empty-ico"><svg viewBox="0 0 24 24"><path d="M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg></div>
+              <h3>Estimates need an analysis run</h3>
+              <p>Click <b>Update estimates</b>. It runs the Monte Carlo analysis for this scenario and tests the main levers.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- METHODS ---------- -->
+      <section class="view" id="view-methods">
+        <div class="view-head">
+          <div>
+            <h1>Boarding methods</h1>
+            <p class="sub">Each seat map shows the planned boarding sequence on the current aircraft: blue boards first, red boards last.</p>
+          </div>
+          <div class="ramp-legend"><span>first</span><i></i><span>last</span></div>
+        </div>
+        <div class="methods-grid" id="methodsGrid"></div>
+        <div class="card about">
+          <h3>How the model works</h3>
+          <div class="about-grid">
+            <div><b>Agents in a lane.</b> Every aisle is a line of cells, one per row, and only one person fits in a cell. A passenger stowing a bag blocks everyone behind them. These aisle interferences are the main cause of slow boarding.</div>
+            <div><b>Bags and bins.</b> Each row has limited bin space. Stowing gets slower as bins fill. When the bin at your row is full, you use one up to 3 rows away. When nothing is free nearby, the bag is gate-checked.</div>
+            <div><b>Seat shuffles.</b> When someone already seated sits between you and your seat, they have to stand up and step out. The cost is a fixed part plus a part for each neighbour who gets up.</div>
+            <div><b>Real-world effects.</b> Pre-boarding, travel parties who walk on together, passengers who ignore their group call, slow walkers, fare and status tiers, and load factors below 100%.</div>
+            <div><b>Disruptions.</b> Optional irregular events: someone in the wrong seat, a bag sent to the hold, a seat-swap negotiation, crew assistance, a medical incident, a boarding pause, late passengers, and a no-show whose bag must be offloaded. They are drawn per seed, so every method faces the same events. The Risk tab compares clean and disrupted boarding.</div>
+            <div><b>Calibration.</b> With default parameters, the 12-row research cabin reproduces the measured ranking of the Steffen &amp; Hotchkiss (2011) experiment, and each method's mean is within about 13% of its measured time. The experiment's own single-run uncertainty is about 10%.</div>
+            <div><b>Limits.</b> This is a planning model, not a digital twin. It leaves out jet-bridge queues, gate scanning and people passing each other in the aisle. Use it to compare options and understand sensitivities, and validate against your own boarding timestamps.</div>
+          </div>
+          <p class="refs">References: Steffen, J.H. (2008) <i>Optimal boarding method for airline passengers</i>, JATM 14(3) · Steffen &amp; Hotchkiss (2011) <i>Experimental test of airplane boarding methods</i>, JATM · van den Briel et al. (2005) <i>America West Airlines develops efficient boarding strategies</i>, Interfaces 35(3) · Van Landeghem &amp; Beuselinck (2002), EJOR 142(2) · Airlines for America, <i>U.S. Passenger Carrier Delay Costs</i> (2025).</p>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="scrim" id="scrim"></div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+/* Boarding Lab — aircraft library
+ * ---------------------------------------------------------------
+ * An aircraft is pure data. To add one, append an object to BS.AIRCRAFT.
+ *
+ *   cabins : ordered front → back. Each cabin has a class (F/J/W/Y), a row
+ *            count and a layout string. Letters are seats, "|" is an aisle.
+ *            "ABC|DEF" = single aisle 3-3, "ABC|DEFG|HJK" = twin aisle 3-4-3.
+ *            Premium cabins may use a subset of letters ("AC|DF") so they line
+ *            up with the economy columns.
+ *   doors  : where passengers can enter. `at` is "front" (forward galley),
+ *            "rear" (aft galley) or a row number (door sits at that row's aisle
+ *            position, e.g. the L2 door behind business on a widebody).
+ *            `default: true` marks doors that are used unless the user changes it.
+ *
+ * Layouts are representative, not a specific airline's LOPA.
+ */
+(function (root) {
+  'use strict';
+  const BS = (root.BS = root.BS || {});
+
+  BS.AIRCRAFT = [
+    {
+      id: 'steffen-757', name: 'Steffen test cabin', variant: '12 rows · 72 seats (research mock-up)',
+      family: 'Research', note: 'Mock 757 fuselage used in the Steffen & Hotchkiss (2011) boarding experiment. Use it to compare against real measured times.',
+      cabins: [{ cls: 'Y', rows: 12, layout: 'ABC|DEF' }],
+      doors: [{ id: 'L1', at: 'front', default: true }],
+    },
+    {
+      id: 'atr72', name: 'ATR 72-600', variant: '2-2 · 72 seats',
+      family: 'Regional', note: 'Turboprop that boards through the rear left door.',
+      cabins: [{ cls: 'Y', rows: 18, layout: 'AC|DF' }],
+      doors: [{ id: 'L2 rear', at: 'rear', default: true }],
+    },
+    {
+      id: 'e190', name: 'Embraer E190-E2', variant: '2-2 · 100 seats',
+      family: 'Regional', note: 'Regional jet, 2-2 cabin, front door boarding.',
+      cabins: [{ cls: 'Y', rows: 25, layout: 'AC|DF' }],
+      doors: [{ id: 'L1', at: 'front', default: true }, { id: 'L2', at: 'rear' }],
+    },
+    {
+      id: 'a220-300', name: 'Airbus A220-300', variant: '2-3 · 135 seats',
+      family: 'Narrowbody', note: 'Asymmetric 2-3 cabin: a single middle seat per row.',
+      cabins: [{ cls: 'Y', rows: 27, layout: 'AC|DEF' }],
+      doors: [{ id: 'L1', at: 'front', default: true }, { id: 'L2', at: 'rear' }],
+    },
+    {
+      id: 'a320-lcc', name: 'Airbus A320neo', variant: 'All-economy · 186 seats',
+      family: 'Narrowbody', note: 'Typical low-cost layout.',
+      cabins: [{ cls: 'Y', rows: 31, layout: 'ABC|DEF' }],
+      doors: [{ id: 'L1', at: 'front', default: true }, { id: 'L4', at: 'rear' }],
+    },
+    {
+      id: 'a320-2c', name: 'Airbus A320neo', variant: '12 J + 150 Y · 162 seats',
+      family: 'Narrowbody', note: 'European-style business class: 3-3 seats with the middle seat blocked.',
+      cabins: [{ cls: 'J', rows: 3, layout: 'AC|DF' }, { cls: 'Y', rows: 25, layout: 'ABC|DEF' }],
+      doors: [{ id: 'L1', at: 'front', default: true }, { id: 'L4', at: 'rear' }],
+    },
+    {
+      id: 'a321-lcc', name: 'Airbus A321neo', variant: 'All-economy · 228 seats',
+      family: 'Narrowbody', note: 'Long single-aisle cabin. The aisle is the bottleneck.',
+      cabins: [{ cls: 'Y', rows: 38, layout: 'ABC|DEF' }],
+      doors: [{ id: 'L1', at: 'front', default: true }, { id: 'L4', at: 'rear' }],
+    },
+    {
+      id: 'b737-800', name: 'Boeing 737-800', variant: 'All-economy · 186 seats',
+      family: 'Narrowbody', note: 'High-density low-cost layout. Often boarded front and rear by stairs.',
+      cabins: [{ cls: 'Y', rows: 31, layout: 'ABC|DEF' }],
+      doors: [{ id: 'L1', at: 'front', default: true }, { id: 'L2', at: 'rear' }],
+    },
+    {
+      id: 'b737max8', name: 'Boeing 737 MAX 8', variant: '16 F + 156 Y · 172 seats',
+      family: 'Narrowbody', note: 'US two-class layout with a 2-2 first class.',
+      cabins: [{ cls: 'F', rows: 4, layout: 'AC|DF' }, { cls: 'Y', rows: 26, layout: 'ABC|DEF' }],
+      doors: [{ id: 'L1', at: 'front', default: true }, { id: 'L2', at: 'rear' }],
+    },
+    {
+      id: 'b787-9', name: 'Boeing 787-9', variant: '32 J + 261 Y · 293 seats',
+      family: 'Widebody', note: 'Twin aisle 3-3-3. Boards through L2, behind business class.',
+      cabins: [{ cls: 'J', rows: 8, layout: 'A|DF|K' }, { cls: 'Y', rows: 29, layout: 'ABC|DEF|HJK' }],
+      doors: [{ id: 'L1', at: 'front' }, { id: 'L2', at: 9, default: true }],
+    },
+    {
+      id: 'a350-900', name: 'Airbus A350-900', variant: '32 J + 270 Y · 302 seats',
+      family: 'Widebody', note: 'Twin aisle 3-3-3.',
+      cabins: [{ cls: 'J', rows: 8, layout: 'A|DF|K' }, { cls: 'Y', rows: 30, layout: 'ABC|DEF|HJK' }],
+      doors: [{ id: 'L1', at: 'front' }, { id: 'L2', at: 9, default: true }],
+    },
+    {
+      id: 'b777-300er', name: 'Boeing 777-300ER', variant: '40 J + 340 Y · 380 seats',
+      family: 'Widebody', note: 'Twin aisle 3-4-3 economy.',
+      cabins: [{ cls: 'J', rows: 10, layout: 'A|DG|K' }, { cls: 'Y', rows: 34, layout: 'ABC|DEFG|HJK' }],
+      doors: [{ id: 'L1', at: 'front' }, { id: 'L2', at: 11, default: true }],
+    },
+    {
+      id: 'a380-main', name: 'Airbus A380', variant: 'Main deck · 440 Y',
+      family: 'Widebody', note: 'Main deck only, 3-4-3. Usually boarded through two doors.',
+      cabins: [{ cls: 'Y', rows: 44, layout: 'ABC|DEFG|HJK' }],
+      doors: [{ id: 'M1', at: 'front', default: true }, { id: 'M2', at: 14, default: true }],
+    },
+  ];
+
+  /** Parse one layout string into per-letter seat metadata. */
+  function parseLayout(layout) {
+    const groups = layout.split('|');
+    const out = [];
+    groups.forEach((g, gi) => {
+      const n = g.length;
+      for (let i = 0; i < n; i++) {
+        const letter = g[i];
+        let lane, side, fromAisle;
+        if (gi === 0) { lane = 0; side = 0; fromAisle = n - 1 - i; }                 // left block, aisle on its right
+        else if (gi === groups.length - 1) { lane = gi - 1; side = 1; fromAisle = i; } // right block, aisle on its left
+        else {                                                                       // centre block, split between the two aisles
+          const half = Math.ceil(n / 2);
+          if (i < half) { lane = gi - 1; side = 1; fromAisle = i; }
+          else { lane = gi; side = 0; fromAisle = n - 1 - i; }
+        }
+        const outer = gi === 0 || gi === groups.length - 1;
+        out.push({ letter, lane, side, fromAisle, isWindow: outer && fromAisle === n - 1 });
+      }
+    });
+    return out;
+  }
+
+  /** Turn an aircraft definition into a geometry the engine and renderer can use. */
+  BS.compileAircraft = function (def) {
+    const count = (l) => l.replace(/\|/g, '').length;
+    const widest = def.cabins.reduce((a, c) => (count(c.layout) > count(a) ? c.layout : a), '');
+    const groups = widest.split('|');
+    const lanes = groups.length - 1;
+
+    // vertical "slots": one per seat letter plus one per aisle (renderer uses these)
+    const slotOf = {};
+    const aisleSlots = [];
+    let slot = 0;
+    groups.forEach((g, gi) => {
+      for (const ch of g) slotOf[ch] = slot++;
+      if (gi < groups.length - 1) aisleSlots.push(slot++);
+    });
+
+    const seats = [];
+    const rows = [];
+    let r = 0;
+    let maxFromAisle = 0;
+    def.cabins.forEach((cab, ci) => {
+      const meta = parseLayout(cab.layout);
+      for (let i = 0; i < cab.rows; i++) {
+        r++;
+        rows.push({ row: r, cls: cab.cls, cabin: ci, seats: meta.length });
+        for (const m of meta) {
+          if (slotOf[m.letter] === undefined) throw new Error(`Seat ${m.letter} not in widest layout of ${def.id}`);
+          maxFromAisle = Math.max(maxFromAisle, m.fromAisle);
+          seats.push({
+            idx: seats.length, id: r + m.letter, row: r, letter: m.letter, slot: slotOf[m.letter],
+            lane: m.lane, side: m.side, fromAisle: m.fromAisle, isWindow: m.isWindow, cls: cab.cls,
+          });
+        }
+      }
+    });
+    const N = r;
+    const doors = def.doors.map((d) => ({
+      id: d.id, default: !!d.default,
+      cell: d.at === 'front' ? 0 : d.at === 'rear' ? N + 1 : Math.max(0, Math.min(N + 1, d.at)),
+    }));
+
+    return {
+      def, id: def.id, name: def.name, variant: def.variant, family: def.family,
+      N, lanes, slotOf, aisleSlots, totalSlots: slot, seats, rows, doors, maxFromAisle,
+      premiumRows: rows.filter((x) => x.cls !== 'Y').length,
+      layoutLabel: def.cabins.map((c) => c.layout.split('|').map((g) => g.length).join('-')).filter((v, i, a) => a.indexOf(v) === i).join(' / '),
+    };
+  };
+
+  BS.getAircraft = function (id) {
+    const def = BS.AIRCRAFT.find((a) => a.id === id) || BS.AIRCRAFT[4];
+    return BS.compileAircraft(def);
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+  <script>
+/* Boarding Lab — boarding strategies
+ * ---------------------------------------------------------------
+ * A strategy is pure data plus one function:
+ *
+ *   order(pax, ac, rng) -> Array<{ p, g }>
+ *
+ * It receives the passengers (each has row, lane, side, fromAisle, cls, …),
+ * the compiled aircraft and a seeded RNG. It returns them in the order they
+ * reach the door, each with a group number `g` (used for colouring and for
+ * modelling passengers who board with the wrong group).
+ *
+ * Strategies never touch the simulation. Real-world effects (pre-boarding,
+ * travel parties, passengers ignoring their group) are applied afterwards by
+ * the engine, so every strategy gets them for free.
+ *
+ * Set `openSeating: true` for unassigned seating. Passengers then pick a seat
+ * when they walk in.
+ */
+(function (root) {
+  'use strict';
+  const BS = (root.BS = root.BS || {});
+
+  const shuffle = (arr, rng) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
+  BS.shuffle = shuffle;
+
+  /** Group passengers with groupFn, board groups in ascending order, random inside each group. */
+  const byGroups = (pax, groupFn, rng) => {
+    const tagged = shuffle(pax.slice(), rng).map((p) => ({ p, g: groupFn(p) }));
+    return tagged.sort((a, b) => a.g - b.g);
+  };
+
+  /** Strict ordering by key tuple (no randomness). */
+  const byKey = (pax, keyFn) => {
+    const arr = pax.map((p) => ({ p, k: keyFn(p) }));
+    arr.sort((a, b) => {
+      for (let i = 0; i < a.k.length; i++) if (a.k[i] !== b.k[i]) return a.k[i] - b.k[i];
+      return 0;
+    });
+    return arr.map((x, i) => ({ p: x.p, g: i + 1 }));
+  };
+
+  const zoneFromBack = (p, ac, zones) => {
+    const fromBack = (ac.N - p.row) / ac.N; // 0 = last row
+    return Math.min(zones, Math.floor(fromBack * zones) + 1);
+  };
+  const seatRank = (p, ac) => ac.maxFromAisle - p.fromAisle; // 0 = window, higher = closer to aisle
+
+  /**
+   * Typical airline group structure (numbers follow the gate announcement):
+   *   pre-boarding (assistance, families: applied by the engine) → G1 premium cabin →
+   *   G2 status holders → G3 paid priority / cards → main cabin (econFn decides how
+   *   it is split) → basic economy last.
+   * Tiers come from the passenger model, where status holders cluster at the front of economy.
+   */
+  const airlineGroups = (econFn, econGroups) => (pax, ac, rng) => byGroups(pax, (p) => {
+    if (p.cls !== 'Y' || p.tier === 'premium') return 1;
+    if (p.tier === 'elite') return 2;
+    if (p.tier === 'priority') return 3;
+    if (p.tier === 'basic') return 4 + econGroups;
+    return 4 + econFn(p, ac);
+  }, rng);
+  const coin = (p) => ((p.id * 2654435761) >>> 0) / 4294967296; // stable pseudo-random split per passenger
+
+  BS.STRATEGIES = [
+    {
+      id: 'random', name: 'Random', short: 'RND', color: '#8B5CF6',
+      tagline: 'Assigned seats, no boarding order.',
+      desc: 'Everyone has a seat but walks on in whatever order they reach the gate. This is the usual research baseline, and it is what boarding turns into when nobody enforces groups.',
+      pros: ['Nothing to explain or enforce', 'Spreads people along the cabin, so several can stow bags at once'],
+      cons: ['Lots of seat shuffles (the window passenger turns up last)', 'Unpredictable, with wide spread between flights'],
+      practicality: 5, usedBy: 'Default when groups aren’t enforced',
+      source: 'Steffen & Hotchkiss (2011): measured 4:44 on a 72-seat mock-up.',
+      order: (pax, ac, rng) => shuffle(pax.slice(), rng).map((p) => ({ p, g: 1 })),
+    },
+    {
+      id: 'btf-zones', name: 'Back-to-Front (3 zones)', short: 'BTF3', color: '#EF4444',
+      tagline: 'The rear third first, then the middle, then the front.',
+      desc: 'The classic airline zone call. It feels logical, but everyone in a zone is aimed at the same short stretch of aisle, so they queue behind each other while bags are stowed.',
+      pros: ['Easy to announce', 'Familiar to passengers'],
+      cons: ['Concentrates the aisle into one section at a time', 'Usually no better than random'],
+      practicality: 5, usedBy: 'Many legacy and regional carriers',
+      source: 'van den Briel et al. (2005); Steffen (2008).',
+      order: (pax, ac, rng) => byGroups(pax, (p) => zoneFromBack(p, ac, 3), rng),
+    },
+    {
+      id: 'btf-5', name: 'Back-to-Front (5 zones)', short: 'BTF5', color: '#F97316',
+      tagline: 'The same idea sliced into five smaller zones.',
+      desc: 'Smaller zones make the jam worse. Each group only has a few rows to spread out in.',
+      pros: ['Easy to announce'],
+      cons: ['Even more aisle congestion than 3 zones'],
+      practicality: 4, usedBy: 'Some legacy carriers',
+      source: 'Steffen & Hotchkiss (2011): 4-row blocks measured 6:54, the slowest tested.',
+      order: (pax, ac, rng) => byGroups(pax, (p) => zoneFromBack(p, ac, 5), rng),
+    },
+    {
+      id: 'ftb-zones', name: 'Front-to-Back (3 zones)', short: 'FTB3', color: '#DC2626',
+      tagline: 'Front third first. The textbook worst case.',
+      desc: 'Early boarders block the aisle right at the door, so everyone behind them waits.',
+      pros: ['Nothing, apart from being a useful worst-case benchmark'],
+      cons: ['Slowest method in almost every study'],
+      practicality: 5, usedBy: 'Accidental result of premium-first boarding',
+      source: 'Steffen (2008), Journal of Air Transport Management 14(3).',
+      order: (pax, ac, rng) => byGroups(pax, (p) => 4 - zoneFromBack(p, ac, 3), rng),
+    },
+    {
+      id: 'btf-strict', name: 'Back-to-Front (row by row)', short: 'BTF-R', color: '#B91C1C',
+      tagline: 'A perfect single file from the last row to the first, window to aisle.',
+      desc: 'Looks perfectly organised: no seat shuffles at all. But every passenger waits for the one in front to stow a bag, so bags go in one at a time.',
+      pros: ['Zero seat interference'],
+      cons: ['The aisle is fully serialised', 'Very slow'],
+      practicality: 1, usedBy: 'Research only',
+      source: 'Steffen & Hotchkiss (2011): measured 6:11.',
+      order: (pax, ac) => byKey(pax, (p) => [-p.row, p.fromAisle === undefined ? 0 : -p.fromAisle, p.side, p.lane]),
+    },
+    {
+      id: 'wilma', name: 'WilMA (Outside-in)', short: 'WMA', color: '#0EA5E9',
+      tagline: 'Window seats, then middle, then aisle.',
+      desc: 'Three groups by seat position. There are no seat shuffles, and passengers in each group land all along the cabin, so bags are stowed in parallel.',
+      pros: ['No seat interference', 'Simple: three calls', 'Robust'],
+      cons: ['Splits couples and families across groups'],
+      practicality: 4, usedBy: 'United Airlines (economy, since 2023)',
+      source: 'Steffen & Hotchkiss (2011): measured 4:13.',
+      order: (pax, ac, rng) => byGroups(pax, (p) => seatRank(p, ac) + 1, rng),
+    },
+    {
+      id: 'rev-pyramid', name: 'Reverse Pyramid', short: 'RPY', color: '#06B6D4',
+      tagline: 'Back windows first, front aisles last, in a diagonal wave.',
+      desc: 'Combines back-to-front with outside-in in about five groups. It was developed with America West Airlines and is one of the best practical group methods.',
+      pros: ['Fast with only a few groups', 'Works well on widebodies'],
+      cons: ['Group assignment is harder to explain'],
+      practicality: 3, usedBy: 'America West (historic)',
+      source: 'van den Briel et al. (2005), Interfaces 35(3).',
+      order: (pax, ac, rng) => byGroups(pax, (p) => {
+        const back = ac.N > 1 ? (p.row - 1) / (ac.N - 1) : 1;
+        const s = ac.maxFromAisle > 0 ? seatRank(p, ac) / ac.maxFromAisle : 0;
+        return Math.min(5, Math.floor(((s + (1 - back)) / 2) * 5) + 1);
+      }, rng),
+    },
+    {
+      id: 'blocks', name: 'Blocks (back · front · middle)', short: 'BLK', color: '#EAB308',
+      tagline: 'Three blocks of rows, in the order back, front, middle.',
+      desc: 'The block method used in the Steffen experiment. Each block works like a small plane, so it has a lot of seat interference.',
+      pros: ['Easy to announce'],
+      cons: ['One of the slowest measured methods'],
+      practicality: 5, usedBy: 'Legacy zone boarding variants',
+      source: 'Steffen & Hotchkiss (2011): measured 6:54.',
+      order: (pax, ac, rng) => byGroups(pax, (p) => {
+        const z = zoneFromBack(p, ac, 3); // 1 back, 2 middle, 3 front
+        return z === 1 ? 1 : z === 3 ? 2 : 3;
+      }, rng),
+    },
+    {
+      id: 'steffen', name: 'Steffen (perfect)', short: 'STF', color: '#10B981',
+      tagline: 'A fixed line where neighbours in the queue sit two rows apart.',
+      desc: 'Window to aisle, alternating sides and row parity, back to front. Each passenger in line has two rows of aisle to stow a bag in, so many stow at once. It is the fastest known method for a single door and a single aisle.',
+      pros: ['Fastest in theory and in experiment', 'No seat interference'],
+      cons: ['Needs a strict single-file line', 'Breaks up families and travel parties'],
+      practicality: 1, usedBy: 'Research, demos, some trials',
+      source: 'Steffen (2008); measured 3:36 in Steffen & Hotchkiss (2011).',
+      order: (pax, ac) => {
+        const lastParity = ac.N % 2;
+        return byKey(pax, (p) => [
+          seatRank(p, ac),
+          p.row % 2 === lastParity ? 0 : 1,
+          p.side === 1 ? p.lane * 2 : p.lane * 2 + 1, // right side first, as in the paper's figure
+          -p.row,
+        ]);
+      },
+    },
+    {
+      id: 'steffen-mod', name: 'Steffen (modified, 4 groups)', short: 'STF4', color: '#22C55E',
+      tagline: 'Four groups by aircraft side and row parity. Random inside each group.',
+      desc: 'A practical version of Steffen: even rows on the right side, even rows on the left, odd right, odd left. Travel parties sitting in the same half-row stay in one group.',
+      pros: ['Most of Steffen’s parallel stowing', 'Keeps half-row families together', 'Only four calls'],
+      cons: ['Has seat interference inside groups'],
+      practicality: 3, usedBy: 'Proposed; trialled by several carriers',
+      source: 'Steffen (2008), “modified optimal” method.',
+      order: (pax, ac, rng) => {
+        const lastParity = ac.N % 2;
+        return byGroups(pax, (p) => {
+          const par = p.row % 2 === lastParity ? 0 : 1;
+          const sideR = p.side === 1 ? 0 : 1;
+          return par * 2 + sideR + 1;
+        }, rng);
+      },
+    },
+    {
+      id: 'wilma-btf', name: 'WilMA + Back-to-Front', short: 'WMB', color: '#3B82F6',
+      tagline: 'Six groups: windows (back half, then front half), then middles, then aisles.',
+      desc: 'WilMA with each seat group split into back and front halves. It is a common hybrid in simulation studies.',
+      pros: ['No seat interference', 'Slightly faster than plain WilMA on long cabins'],
+      cons: ['Six calls'],
+      practicality: 3, usedBy: 'Hybrid studied in literature',
+      source: 'Van Landeghem & Beuselinck (2002).',
+      order: (pax, ac, rng) => byGroups(pax, (p) => seatRank(p, ac) * 2 + zoneFromBack(p, ac, 2), rng),
+    },
+    {
+      id: 'airline-fare', name: 'Airline groups (fare & status)', short: 'AGF', color: '#78716C',
+      tagline: 'Pre-board, then First/Business, status, priority, main cabin, and basic economy last.',
+      desc: 'How most major airlines actually board. Groups are set by what you paid and your loyalty status, not by where you sit. Seat position is almost random within each group, and status holders sit towards the front, so the result behaves like random boarding with a front-first tilt.',
+      pros: ['Rewards status and premium fares (the commercial reason it exists)', 'Familiar to passengers'],
+      cons: ['Close to random, or worse, for boarding speed', 'Front-seated elites board first and block the aisle at the door'],
+      practicality: 5, usedBy: 'American, Delta, Lufthansa, BA and most full-service carriers',
+      source: 'Airline boarding policies; modelled here with status/fare tiers.',
+      preboard: true,
+      groupCalls: [[1, 'Group 1: First / Business'], [2, 'Group 2: status holders'], [3, 'Group 3: priority, cards'], [4, 'Group 4: main cabin A'], [5, 'Group 5: main cabin B'], [6, 'Group 6: basic economy']],
+      order: airlineGroups((p) => (coin(p) < 0.5 ? 0 : 1), 2),
+    },
+    {
+      id: 'airline-wilma', name: 'Airline groups + WilMA economy', short: 'AGW', color: '#0369A1',
+      tagline: 'Same priority groups, then the main cabin called window → middle → aisle.',
+      desc: 'Keeps the commercial priority groups but calls the regular main cabin by seat position, the way United does since 2023. The priority groups still disturb the order, but the bulk of the cabin boards without seat shuffles.',
+      pros: ['Keeps status benefits', 'Removes most seat shuffles in the main cabin'],
+      cons: ['Priority groups up front still board in random seat order'],
+      practicality: 4, usedBy: 'United Airlines (economy WILMA since 2023)',
+      source: 'United boarding process; Steffen & Hotchkiss (2011) for WilMA.',
+      preboard: true,
+      groupCalls: [[1, 'Group 1: First / Business'], [2, 'Group 2: status holders'], [3, 'Group 3: priority, cards'], [4, 'Group 4: windows'], [5, 'Group 5: middles'], [6, 'Group 6: aisles'], [7, 'Group 7: basic economy']],
+      order: airlineGroups((p, ac) => Math.min(2, seatRank(p, ac)), 3),
+    },
+    {
+      id: 'airline-btf', name: 'Airline groups + back-to-front', short: 'AGB', color: '#BE185D',
+      tagline: 'Same priority groups, then the main cabin in rear, middle and front zones.',
+      desc: 'Priority groups first, then the regular main cabin called by row zones from the back. This is common at carriers that use zone numbers printed on the boarding pass.',
+      pros: ['Keeps status benefits', 'Easy zone announcements'],
+      cons: ['Zones concentrate the aisle', 'Priority passengers at the front block the zone boarders behind them'],
+      practicality: 5, usedBy: 'Many legacy and regional carriers',
+      source: 'Airline boarding policies; van den Briel et al. (2005).',
+      preboard: true,
+      groupCalls: [[1, 'Group 1: First / Business'], [2, 'Group 2: status holders'], [3, 'Group 3: priority, cards'], [4, 'Group 4: rear rows'], [5, 'Group 5: middle rows'], [6, 'Group 6: front rows'], [7, 'Group 7: basic economy']],
+      order: airlineGroups((p, ac) => zoneFromBack(p, ac, 3) - 1, 3),
+    },
+    {
+      id: 'open', name: 'Open seating', short: 'OPEN', color: '#EC4899',
+      tagline: 'No assigned seats. First come, first choice.',
+      desc: 'Passengers pick a seat as they walk in. They prefer window and aisle seats near the front and avoid middle seats until they have to take one.',
+      pros: ['People self-organise and avoid blocked rows', 'Often fast'],
+      cons: ['Stressful gate queues', 'Families struggle to sit together'],
+      practicality: 4, usedBy: 'Southwest (historic open seating)',
+      source: 'Steffen (2008b), statistical-mechanics model of free-for-all boarding.',
+      openSeating: true,
+      order: (pax, ac, rng) => shuffle(pax.slice(), rng).map((p) => ({ p, g: 1 })),
+    },
+  ];
+
+  BS.getStrategy = (id) => BS.STRATEGIES.find((s) => s.id === id);
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+  <script>
+/* Boarding Lab — simulation engine
+ * ---------------------------------------------------------------
+ * Agent-based, fixed time step (dt = 0.25 s), deterministic for a given seed.
+ *
+ * Space: each aisle is a line of cells, one per seat row, plus a galley cell
+ * at each end (cell 0 = forward, cell N+1 = aft). One passenger per cell,
+ * so a passenger stowing a bag blocks everyone behind them (aisle interference).
+ *
+ * Passenger lifecycle:
+ *   QUEUED → WALK (1 cell per `walk` seconds, waits if the next cell is taken)
+ *          → STOW (bag in overhead bin; slower when bins are full; may have to
+ *                  use a bin a few rows away, or the bag gets gate-checked)
+ *          → SHUFFLE (seated neighbours between them and their seat must stand
+ *                     up = seat interference)
+ *          → INCIDENT (optional disruption holding the aisle: wrong seat, bag to
+ *                      the hold, seat swap, crew assistance, medical)
+ *          → SEATED
+ * Flight-level disruptions (boarding pause, late passengers, no-show offload)
+ * are drawn per seed in BS.drawDisruptions, so methods face identical events.
+ *
+ * Calibration defaults reproduce the ranking and rough magnitudes of the
+ * Steffen & Hotchkiss (2011) mock-up experiment (see test/calibrate.js).
+ */
+(function (root) {
+  'use strict';
+  const BS = (root.BS = root.BS || {});
+
+  // ---------- RNG ----------
+  BS.rng = function (seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  BS.hashStr = function (s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  };
+  const normal = (rng) => {
+    let u = 0, v = 0;
+    while (u === 0) u = rng();
+    while (v === 0) v = rng();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  };
+  const lognorm = (rng, mean, cv) => {
+    const s2 = Math.log(1 + cv * cv);
+    return Math.exp(Math.log(mean) - s2 / 2 + Math.sqrt(s2) * normal(rng));
+  };
+
+  // ---------- parameters ----------
+  BS.DEFAULTS = {
+    loadFactor: 1.0,       // share of seats occupied
+    carryOnShare: 0.6,     // passengers with a roller bag for the overhead bin
+    backpackBinShare: 0.3, // of the others: share putting a backpack/coat in the bin (0.5 bin units)
+    binCapacity: 0.65,     // roller-bag units of bin space per seat
+    walkSec: 0.9,          // seconds to walk one row (unhindered)
+    slowShare: 0.08,       // elderly / slow walkers
+    stowSec: 5.0,          // mean time to stow a roller bag into an empty bin
+    shuffleBase: 3.0,      // fixed cost when seated neighbours must stand up
+    shufflePer: 2.0,       // additional seconds per neighbour who has to get up
+    headway: 2.0,          // min seconds between passengers entering through one door
+    partyShare: 0.0,       // share of passengers travelling in parties sitting together
+    preboard: false,       // PRM + families + premium cabin board first
+    prmShare: 0.01,        // passengers needing assistance
+    compliance: 1.0,       // share boarding with their own group
+    eliteShare: 0.15,      // economy passengers with frequent-flyer status (boarding priority)
+    priorityShare: 0.10,   // bought priority / co-brand credit card / extra-legroom seat
+    basicShare: 0.15,      // basic-economy fares, boarded last
+    doors: null,           // array of door ids; null = aircraft defaults
+    risk: 'off',           // disruption level: 'off' | 'realistic' | 'bad'  (see BS.RISK_EVENTS)
+    riskEdits: null,       // optional per-event overrides { id: { on, p, mean } }
+  };
+
+  BS.PRESETS = {
+    lab: { label: 'Ideal lab', hint: 'Everyone follows instructions. No families, no incidents.', cfg: { partyShare: 0, preboard: false, compliance: 1, carryOnShare: 0.6, slowShare: 0.05, loadFactor: 1, headway: 2.0, walkSec: 0.9, eliteShare: 0.15, priorityShare: 0.1, basicShare: 0.15 } },
+    scheduled: { label: 'Typical scheduled flight', hint: 'Pre-boarding, some travel parties, 85% of passengers board with their group.', cfg: { partyShare: 0.3, preboard: true, compliance: 0.85, carryOnShare: 0.6, slowShare: 0.08, loadFactor: 0.88, headway: 2.5, walkSec: 0.9, eliteShare: 0.15, priorityShare: 0.1, basicShare: 0.15 } },
+    leisure: { label: 'Leisure / holiday charter', hint: 'Families, heavy cabin bags, full flight.', cfg: { partyShare: 0.6, preboard: true, compliance: 0.8, carryOnShare: 0.8, slowShare: 0.1, loadFactor: 0.97, headway: 2.8, walkSec: 1.0, eliteShare: 0.05, priorityShare: 0.15, basicShare: 0.25 } },
+    shuttle: { label: 'Business shuttle', hint: 'Frequent flyers, light bags, fast walkers.', cfg: { partyShare: 0.05, preboard: true, compliance: 0.9, carryOnShare: 0.45, slowShare: 0.03, loadFactor: 0.8, headway: 2.2, walkSec: 0.8, eliteShare: 0.35, priorityShare: 0.15, basicShare: 0.05 } },
+  };
+
+  // ---------- disruptions ----------
+  /**
+   * Irregular events that happen during real boardings. Probabilities are planning assumptions
+   * (per passenger for scope 'pax', per flight for scope 'flight'); calibrate them against your
+   * own irregularity reports. `mean` is seconds (lognormal with coefficient of variation `cv`).
+   */
+  BS.RISK_EVENTS = [
+    { id: 'wrongSeat', label: 'Someone in my seat', scope: 'pax', p: { realistic: 0.02, bad: 0.04 }, mean: 12, cv: 0.35,
+      desc: 'A passenger sits in the wrong seat; the owner waits in the aisle while it is sorted out.' },
+    { id: 'bagToHold', label: 'Bag doesn’t fit: crew takes it to the hold', scope: 'pax', needsBag: true, p: { realistic: 0.015, bad: 0.035 }, mean: 25, cv: 0.4,
+      desc: 'An oversized or late bag won’t fit. Crew tags it and carries it forward against the flow.' },
+    { id: 'seatSwap', label: 'Seat-swap negotiation', scope: 'pax', p: { realistic: 0.01, bad: 0.025 }, mean: 20, cv: 0.5,
+      desc: 'A passenger asks others to swap seats (sitting together, window, legroom).' },
+    { id: 'crewAssist', label: 'Crew assistance at the seat', scope: 'pax', p: { realistic: 0.01, bad: 0.02 }, mean: 18, cv: 0.4,
+      desc: 'Help lifting a bag, a seat-belt extender, a question about the seat.' },
+    { id: 'medical', label: 'Medical / assistance incident in the aisle', scope: 'flight', p: { realistic: 0.05, bad: 0.15 }, mean: 120, cv: 0.4,
+      desc: 'A passenger feels unwell or needs substantial help. The aisle is blocked at their row.' },
+    { id: 'gatePause', label: 'Boarding paused at the door', scope: 'flight', p: { realistic: 0.15, bad: 0.35 }, mean: 180, cv: 0.5,
+      desc: 'Flow stops mid-boarding: cabin not ready, catering or cleaning still on board, security check, load-sheet hold.' },
+    { id: 'latePax', label: 'Late passengers', scope: 'flight', p: { realistic: 0.35, bad: 0.6 }, count: { realistic: [1, 3], bad: [2, 5] }, mean: 150, cv: 0.6,
+      desc: 'Passengers from a late connection or the lounge arrive after the queue has cleared.' },
+    { id: 'offload', label: 'No-show with checked bag: offload', scope: 'flight', p: { realistic: 0.05, bad: 0.12 }, mean: 600, cv: 0.3, afterBoarding: true,
+      desc: 'A checked-in passenger never shows up. Their bag must be found and offloaded before the doors close. It adds to door-close time, not to boarding time.' },
+  ];
+  BS.RISK_LEVELS = { off: 'Off', realistic: 'Realistic day', bad: 'Bad day' };
+
+  /** Active events for a config: level defaults + user edits (optionally one event only). */
+  BS.riskProfile = function (cfg, level, onlyId) {
+    level = level || cfg.risk;
+    if (!level || level === 'off') return [];
+    const edits = cfg.riskEdits || {};
+    return BS.RISK_EVENTS.map((e) => {
+      const ed = edits[e.id] || {};
+      return {
+        ...e,
+        on: ed.on !== undefined ? ed.on : true,
+        p: ed.p != null ? ed.p : e.p[level],
+        mean: ed.mean != null ? ed.mean : e.mean,
+        count: e.count ? e.count[level] : null,
+      };
+    }).filter((e) => e.on && e.p > 0 && (!onlyId || e.id === onlyId));
+  };
+
+  /**
+   * Draw which disruptions hit this flight. Uses its own RNG stream with a fixed number of draws
+   * per passenger and event, so the same seed gives the same events whichever method is boarding,
+   * and a "bad day" contains every event of a "realistic day" (same uniforms, higher thresholds).
+   */
+  BS.drawDisruptions = function (pax, profile, seed) {
+    const rng = BS.rng(seed ^ 0x7f4a7c15);
+    const active = new Map(profile.map((e) => [e.id, e]));
+    const holds = new Map();     // pax id → [{ type, dur }]
+    const late = new Map();      // pax id → seconds after the regular queue has cleared
+    const flight = { pause: null, offload: 0, noShowId: -1 };
+    const addHold = (id, type, dur) => { if (!holds.has(id)) holds.set(id, []); holds.get(id).push({ type, dur }); };
+
+    const paxEvents = BS.RISK_EVENTS.filter((e) => e.scope === 'pax');
+    for (const p of pax) {
+      for (const def of paxEvents) {
+        const u = rng(), m = lognorm(rng, 1, def.cv);
+        const e = active.get(def.id);
+        if (!e || (def.needsBag && p.bagUnits < 1)) continue;
+        if (u < e.p) addHold(p.id, def.id, e.mean * m);
+      }
+    }
+    for (const def of BS.RISK_EVENTS.filter((e) => e.scope === 'flight')) {
+      const u = rng(), m = lognorm(rng, 1, def.cv), u2 = rng(), u3 = rng();
+      const e = active.get(def.id);
+      if (!e || u >= e.p || !pax.length) continue;
+      const dur = e.mean * m;
+      if (def.id === 'medical') addHold(pax[Math.floor(u2 * pax.length)].id, 'medical', dur);
+      else if (def.id === 'gatePause') flight.pause = { atFrac: 0.2 + 0.5 * u2, dur };
+      else if (def.id === 'offload') { flight.offload = dur; flight.noShowId = pax[Math.floor(u2 * pax.length)].id; }
+      else if (def.id === 'latePax') {
+        const [lo, hi] = e.count || [1, 3];
+        const k = Math.min(pax.length - 1, lo + Math.floor(u3 * (hi - lo + 1)));
+        const lr = BS.rng((seed ^ 0x3c6ef372) + 1);
+        const pool = pax.map((p) => p.id);
+        for (let i = 0; i < k; i++) {
+          const j = i + Math.floor(lr() * (pool.length - i));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+          late.set(pool[i], e.mean * lognorm(lr, 1, def.cv));
+        }
+      }
+    }
+    return { holds, late, flight };
+  };
+
+  BS.STATE = { QUEUED: 0, WALK: 1, BLOCKED: 2, STOW: 3, SHUFFLE: 4, SEATED: 5, STANDING: 6, INCIDENT: 7 };
+  const S = BS.STATE;
+  const EARLY_STOW_ROWS = 2; // a blocked passenger this close to their row stows the bag where they stand
+
+  // ---------- passengers ----------
+  /** Deterministic passenger population for (aircraft, cfg, seed). Shared by all strategies in a comparison. */
+  BS.generatePassengers = function (ac, cfg, seed) {
+    const rng = BS.rng(seed ^ 0x9e3779b9);
+    const idx = BS.shuffle(ac.seats.map((_, i) => i), rng);
+    const nOcc = Math.max(1, Math.round(ac.seats.length * cfg.loadFactor));
+    const occ = new Uint8Array(ac.seats.length);
+    for (let i = 0; i < nOcc; i++) occ[idx[i]] = 1;
+
+    const pax = [];
+    for (const s of ac.seats) {
+      if (!occ[s.idx]) continue;
+      const prm = rng() < cfg.prmShare;
+      const slow = !prm && rng() < cfg.slowShare;
+      const walkMean = prm ? cfg.walkSec * 2.8 : slow ? cfg.walkSec * 1.9 : cfg.walkSec;
+      const walk = Math.min(6, Math.max(0.45, lognorm(rng, walkMean, 0.18)));
+      const r = rng();
+      const roller = r < cfg.carryOnShare;
+      const bp = rng(); // always drawn, so changing the bag share doesn't reshuffle everyone else's traits
+      const backpack = !roller && bp < cfg.backpackBinShare;
+      const bagUnits = roller ? 1 : backpack ? 0.5 : 0;
+      let stowBase = roller ? lognorm(rng, cfg.stowSec, 0.45) : backpack ? lognorm(rng, cfg.stowSec * 0.45, 0.4) : 0;
+      if (prm) stowBase += 4;
+      const settle = lognorm(rng, 1.6, 0.35);            // turning, sitting down
+      const shuffleJ = lognorm(rng, 1, 0.3);             // personal factor for seat shuffles
+      pax.push({
+        id: pax.length, seat: s, row: s.row, lane: s.lane, side: s.side, fromAisle: s.fromAisle,
+        slot: s.slot, cls: s.cls, walk, bagUnits, stowBase, settle, shuffleJ,
+        prm, slow, party: -1, family: false,
+      });
+    }
+
+    // fare / status tiers (separate RNG stream so the other passenger traits stay identical).
+    // Status holders cluster in the front of economy and avoid middle seats; basic-economy
+    // passengers get seats assigned at check-in, mostly middles towards the back.
+    const trng = BS.rng(seed ^ 0x2545f491);
+    const econRows = ac.rows.filter((r) => r.cls === 'Y').map((r) => r.row);
+    const eFirst = econRows.length ? econRows[0] : 1;
+    const eSpan = Math.max(1, econRows.length - 1);
+    for (const p of pax) {
+      if (p.cls !== 'Y') { p.tier = 'premium'; continue; }
+      const pos = (p.row - eFirst) / eSpan;          // 0 = front of economy, 1 = last row
+      const middle = !p.seat.isWindow && p.fromAisle > 0;
+      const pElite = (cfg.eliteShare || 0) * (pos < 0.2 ? 1.8 : pos > 0.6 ? 0.6 : 1) * (middle ? 0.4 : 1.25);
+      const pPrio = (cfg.priorityShare || 0) * (pos < 0.2 ? 1.3 : 1);
+      const pBasic = (cfg.basicShare || 0) * (middle ? 1.9 : 0.6) * (pos > 0.5 ? 1.25 : 0.75);
+      const u = trng();
+      p.tier = u < pElite ? 'elite' : u < pElite + pPrio ? 'priority' : u < pElite + pPrio + pBasic ? 'basic' : 'main';
+    }
+
+    // travel parties: contiguous seats in one half-row
+    if (cfg.partyShare > 0) {
+      const halves = new Map();
+      for (const p of pax) {
+        const k = p.row * 64 + p.lane * 2 + p.side;
+        if (!halves.has(k)) halves.set(k, []);
+        halves.get(k).push(p);
+      }
+      let partyId = 0;
+      const pRow = Math.min(1, cfg.partyShare * 1.25);
+      for (const list of halves.values()) {
+        if (list.length < 2 || rng() >= pRow) continue;
+        list.sort((a, b) => b.fromAisle - a.fromAisle);
+        const size = list.length >= 3 && rng() < 0.4 ? 3 : 2;
+        const members = list.slice(0, size);
+        let contiguous = true;
+        for (let i = 1; i < members.length; i++) if (members[i - 1].fromAisle - members[i].fromAisle !== 1) contiguous = false;
+        if (!contiguous) continue;
+        const family = size === 3 && rng() < 0.5;
+        for (const m of members) { m.party = partyId; m.family = family; }
+        partyId++;
+      }
+    }
+    return pax;
+  };
+
+  // ---------- boarding queue ----------
+  /** Strategy order + real-world effects → final door queue. */
+  BS.buildQueue = function (ac, pax, strategy, cfg, seed) {
+    const rng = BS.rng((seed * 2654435761) ^ BS.hashStr(strategy.id));
+    let seq = strategy.order(pax, ac, rng).map((e) => ({ p: e.p, g: e.g, pre: 0 }));
+    const nGroups = new Set(seq.map((e) => e.g)).size;
+
+    // 1. Passengers who ignore their group call (they board early)
+    if (cfg.compliance < 1 && nGroups > 1) {
+      const out = seq.slice();
+      for (let i = 0; i < seq.length; i++) {
+        if (rng() < cfg.compliance) continue;
+        const e = seq[i];
+        const cur = out.indexOf(e);
+        out.splice(cur, 1);
+        out.splice(Math.floor(rng() * (cur + 1)), 0, e);
+      }
+      seq = out;
+    }
+
+    // 2. Travel parties walk on together (window seat first)
+    if (!strategy.openSeating && seq.some((e) => e.p.party >= 0)) {
+      const byParty = new Map();
+      for (const e of seq) if (e.p.party >= 0) {
+        if (!byParty.has(e.p.party)) byParty.set(e.p.party, []);
+        byParty.get(e.p.party).push(e);
+      }
+      const done = new Set();
+      const out = [];
+      for (const e of seq) {
+        if (e.p.party < 0) { out.push(e); continue; }
+        if (done.has(e.p.party)) continue;
+        done.add(e.p.party);
+        const members = byParty.get(e.p.party).sort((a, b) => b.p.fromAisle - a.p.fromAisle);
+        for (const m of members) out.push({ ...m, g: e.g });
+      }
+      seq = out;
+    }
+
+    // 3. Pre-boarding: assistance, families, premium cabins (always on for airline group methods)
+    if (cfg.preboard || strategy.preboard) {
+      const rank = (e) => (e.p.prm ? 0 : e.p.family ? 1 : e.p.cls !== 'Y' ? 2 : 3);
+      seq = seq.map((e, i) => ({ e, i, r: rank(e) }))
+        .sort((a, b) => a.r - b.r || a.i - b.i)
+        .map((x) => { if (x.r < 2) x.e.pre = x.r + 1; else if (x.r === 2 && !strategy.preboard) x.e.pre = 3; return x.e; });
+    }
+    return seq;
+  };
+
+  // ---------- simulation ----------
+  /**
+   * Run one boarding to completion.
+   * opts.record: keep frames for playback (0.5 s) and per-second series.
+   */
+  BS.runSim = function (ac, pax, strategy, cfg, seed, opts) {
+    opts = opts || {};
+    const record = !!opts.record;
+    const dt = 0.25;
+    const frameDt = 0.5;
+    // disruptions (opts.riskOnly = one event id, used to measure each event's marginal impact)
+    const profile = BS.riskProfile(cfg, null, opts.riskOnly);
+    const dis = profile.length ? BS.drawDisruptions(pax, profile, seed) : null;
+    let queue = BS.buildQueue(ac, pax, strategy, cfg, seed);
+    if (dis && dis.flight.noShowId >= 0) queue = queue.filter((e) => e.p.id !== dis.flight.noShowId);
+    const n = queue.length;
+    const N = ac.N;
+    const cells = N + 2;
+    const lanes = ac.lanes;
+    const rng = BS.rng(seed ^ 0x51ed270b ^ BS.hashStr(strategy.id));
+
+    // doors
+    let doors = ac.doors.filter((d) => (cfg.doors ? cfg.doors.includes(d.id) : d.default));
+    if (!doors.length) doors = ac.doors.filter((d) => d.default);
+    if (!doors.length) doors = [ac.doors[0]];
+
+    // agents (copy of passenger + dynamic state)
+    const agents = queue.map((e, i) => ({
+      ...e.p, pid: e.p.id, id: i, order: i, group: e.g, pre: e.pre,
+      state: S.QUEUED, cell: -1, prevCell: -1, moveStart: 0, nextAt: 0, busyUntil: 0,
+      blocked: false, blockedSince: 0, waitAisle: 0, enterAt: -1, seatedAt: -1,
+      standUntil: 0, door: 0, dir: 1, gateChecked: false, bagDone: false, early: false, seatPicked: false,
+      holds: dis ? dis.holds.get(e.p.id) || null : null,
+      lateDelay: dis ? dis.late.get(e.p.id) || 0 : 0,
+    }));
+
+    // assign doors
+    const openSeating = !!strategy.openSeating;
+    const doorQueues = doors.map(() => []);
+    agents.forEach((a, i) => {
+      let best = 0;
+      if (openSeating) best = i % doors.length;
+      else {
+        let bd = Infinity;
+        doors.forEach((d, di) => { const dd = Math.abs(a.row - d.cell); if (dd < bd) { bd = dd; best = di; } });
+      }
+      a.door = best;
+      doorQueues[best].push(a);
+    });
+    // late passengers join the back of their door queue and only arrive after the regular queue has cleared
+    for (let d = 0; d < doorQueues.length; d++) {
+      doorQueues[d] = doorQueues[d].filter((a) => !a.lateDelay).concat(doorQueues[d].filter((a) => a.lateDelay));
+    }
+    let regularLeft = agents.filter((a) => !a.lateDelay).length;
+    let regularDoneAt = regularLeft === 0 ? 0 : -1;
+    let entered = 0, pauseUntil = -1, pauseDone = false;
+    const doorNext = doors.map(() => 0);
+    const doorHead = doors.map(() => 0);
+
+    // open seating: seat pool
+    const seatTaken = new Uint8Array(ac.seats.length);
+    const seatScore = (s, doorCell) => {
+      const dist = Math.abs(s.row - doorCell) / N;
+      const type = s.isWindow ? 1.0 : s.fromAisle === 0 ? 0.85 : 0.2;
+      return type * 1.2 - dist * 0.9 + rng() * 0.6;
+    };
+    const pickSeat = (a) => {
+      const dc = doors[a.door].cell;
+      const nearestDoor = (s) => {
+        let bd = Infinity, bi = 0;
+        doors.forEach((d, di) => { const dd = Math.abs(s.row - d.cell); if (dd < bd) { bd = dd; bi = di; } });
+        return bi;
+      };
+      let best = null, bs = -Infinity;
+      for (const own of [true, false]) { // prefer seats served by this door
+        for (const s of ac.seats) {
+          if (seatTaken[s.idx]) continue;
+          if (own && doors.length > 1 && nearestDoor(s) !== a.door) continue;
+          const sc = seatScore(s, dc);
+          if (sc > bs) { bs = sc; best = s; }
+        }
+        if (best) break;
+      }
+      seatTaken[best.idx] = 1;
+      a.seat = best; a.row = best.row; a.lane = best.lane; a.side = best.side;
+      a.fromAisle = best.fromAisle; a.slot = best.slot; a.cls = best.cls;
+    };
+
+    // occupancy
+    const occ = [];
+    for (let l = 0; l < lanes; l++) occ.push(new Int32Array(cells).fill(-1));
+
+    // overhead bins per (lane, side, row)
+    const binIdx = (lane, side, row) => (lane * 2 + side) * cells + row;
+    const binCap = new Float32Array(lanes * 2 * cells);
+    const binFill = new Float32Array(lanes * 2 * cells);
+    for (const s of ac.seats) binCap[binIdx(s.lane, s.side, s.row)] += cfg.binCapacity;
+    const binEvents = [];
+
+    // seated per half-row
+    const halfSeated = new Map();
+    const hk = (a) => a.row * 64 + a.lane * 2 + a.side;
+
+    // metrics
+    let t = 0, seated = 0, firstEnter = -1, aisleInterf = 0, seatInterf = 0,
+      gateChecked = 0, binAway = 0, firstBinFull = -1, doorBlocked = 0;
+    const events = [];
+    const disCount = {};   // disruption id → occurrences
+    const disSec = {};     // disruption id → seconds of aisle blocking / pause
+    const countDis = (id, sec) => { disCount[id] = (disCount[id] || 0) + 1; disSec[id] = (disSec[id] || 0) + sec; };
+    const RISK_TEXT = { wrongSeat: 'Someone in the wrong seat', bagToHold: 'Bag doesn’t fit: crew takes it to the hold', seatSwap: 'Seat-swap negotiation', crewAssist: 'Crew assisting at the seat', medical: 'Medical incident: aisle blocked' };
+    let active = [];
+
+    // recording
+    const frames = [];
+    const series = { seated: [], aisle: [], seat: [], inAisle: [], queued: [], paused: [] };
+    let nextFrame = 0, nextSec = 0;
+
+    // bag into overhead bin near `row`; returns seconds spent
+    const doStow = (a, row) => {
+      let t0 = 0;
+      if (a.bagUnits > 0 && !a.bagDone) {
+        a.bagDone = true;
+        const u = a.bagUnits;
+        const tries = [];
+        for (let d = 0; d <= 3; d++) {
+          for (const sgn of d === 0 ? [0] : [-1, 1]) {
+            const r = row + sgn * d;
+            if (r < 1 || r > N) continue;
+            tries.push([a.lane, a.side, r, d]);
+            tries.push([a.lane, 1 - a.side, r, d + 0.5]);
+          }
+        }
+        let placed = false;
+        for (const [l, sd, r, d] of tries) {
+          const k = binIdx(l, sd, r);
+          if (binCap[k] <= 0) continue;
+          if (binFill[k] + u <= binCap[k] + 1e-6) {
+            const ratio = binFill[k] / binCap[k];
+            binFill[k] += u;
+            if (binFill[k] >= binCap[k] - 1e-6 && firstBinFull < 0) {
+              firstBinFull = t;
+              events.push({ t, type: 'bin', text: `First bin full (row ${r})` });
+            }
+            if (record) binEvents.push({ t, k, u });
+            t0 += a.stowBase * (1 + 0.9 * ratio * ratio) + (d > 0 ? 2 + 1.8 * d : 0);
+            if (d > 0) binAway++;
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) { // bins full nearby → bag goes in the hold
+          gateChecked++;
+          a.gateChecked = true;
+          t0 += 4; // hand over bag to crew
+          if (gateChecked === 1) events.push({ t, type: 'gate', text: 'Bins full: bags now being checked into the hold' });
+        }
+      }
+      return t0;
+    };
+
+    const seatAgent = (a) => {
+      occ[a.lane][a.cell] = -1;
+      a.state = S.SEATED;
+      a.seatedAt = t;
+      a.cell = a.row;
+      seated++;
+      const k = hk(a);
+      if (!halfSeated.has(k)) halfSeated.set(k, []);
+      halfSeated.get(k).push(a);
+      if (seated === Math.ceil(n / 2)) events.push({ t, type: 'half', text: '50% seated' });
+      if (seated === n) events.push({ t, type: 'done', text: 'Boarding complete' });
+    };
+
+    const snapshot = () => {
+      const pos = new Float32Array(n);
+      const st = new Uint8Array(n);
+      for (let i = 0; i < n; i++) {
+        const a = agents[i];
+        let s = a.state;
+        if (s === S.WALK && a.blocked) s = S.BLOCKED;
+        if (s === S.SEATED && a.standUntil > t) s = S.STANDING;
+        st[i] = s;
+        if (s === S.WALK && t < a.nextAt && a.prevCell >= 0) {
+          const f = Math.min(1, (t - a.moveStart) / Math.max(0.01, a.nextAt - a.moveStart));
+          pos[i] = a.prevCell + (a.cell - a.prevCell) * f;
+        } else pos[i] = a.cell;
+      }
+      frames.push({ pos, st });
+    };
+
+    const LIMIT = 3 * 3600;
+    while (seated < n && t < LIMIT) {
+      // --- boarding pause (disruption): the door stops admitting passengers for a while
+      if (dis && dis.flight.pause && !pauseDone && entered >= Math.floor(dis.flight.pause.atFrac * n)) {
+        pauseDone = true;
+        pauseUntil = t + dis.flight.pause.dur;
+        countDis('gatePause', dis.flight.pause.dur);
+        events.push({ t, type: 'risk', text: `Boarding paused at the door for ${BS.fmtTime(dis.flight.pause.dur)}` });
+      }
+      const paused = t < pauseUntil;
+
+      // --- spawn at doors
+      for (let d = 0; d < doors.length && !paused; d++) {
+        const q = doorQueues[d];
+        if (doorHead[d] >= q.length || t < doorNext[d]) continue;
+        const a = q[doorHead[d]];
+        if (a.lateDelay && (regularDoneAt < 0 || t < regularDoneAt + a.lateDelay)) continue; // late passenger not here yet
+        if (openSeating && !a.seatPicked) { pickSeat(a); a.seatPicked = true; }
+        const cell = doors[d].cell;
+        if (occ[a.lane][cell] !== -1) { doorBlocked += dt; continue; } // aisle backed up to the door
+        doorHead[d]++;
+        occ[a.lane][cell] = a.id;
+        a.cell = cell; a.prevCell = cell; a.state = S.WALK; a.enterAt = t; a.moveStart = t;
+        a.dir = a.row >= cell ? 1 : -1;
+        a.nextAt = t + a.walk;
+        if (firstEnter < 0) firstEnter = t;
+        doorNext[d] = t + cfg.headway * (0.75 + rng() * 0.5);
+        active.push(a);
+        entered++;
+        if (a.lateDelay) { countDis('latePax', a.lateDelay); events.push({ t, type: 'risk', text: `Late passenger arrives (row ${a.row})` }); }
+        else if (--regularLeft === 0) regularDoneAt = t;
+      }
+
+      // --- move: process agents closest to their destination side first so trains flow
+      active.sort((x, y) => (x.dir === y.dir ? (y.cell - x.cell) * x.dir : x.dir - y.dir));
+      for (const a of active) {
+        if (a.state === S.WALK) {
+          if (t < a.nextAt) continue;
+          if (a.cell === a.row) {
+            if (a.blocked) { if (t - a.blockedSince >= 1) aisleInterf++; a.blocked = false; }
+            a.state = S.STOW;
+            a.early = false;
+            a.busyUntil = t + doStow(a, a.row) + a.settle;
+            continue;
+          }
+          const nxt = a.cell + a.dir;
+          const lane = occ[a.lane];
+          const o = lane[nxt] === -1 ? null : agents[lane[nxt]];
+          if (!o) {
+            lane[a.cell] = -1;
+            lane[nxt] = a.id;
+            a.prevCell = a.cell; a.cell = nxt; a.moveStart = t;
+            a.nextAt = t + a.walk;
+            if (a.blocked) {
+              if (t - a.blockedSince >= 1) aisleInterf++;
+              a.blocked = false;
+            }
+          } else if (o.state === S.WALK && o.dir === -a.dir && t >= o.nextAt && o.cell !== o.row) {
+            // two people walking towards each other squeeze past (swap cells)
+            lane[a.cell] = o.id; lane[nxt] = a.id;
+            o.prevCell = nxt; o.cell = a.cell; o.moveStart = t; o.nextAt = t + o.walk * 1.5;
+            a.prevCell = a.cell; a.cell = nxt; a.moveStart = t; a.nextAt = t + a.walk * 1.5;
+            a.blocked = false; o.blocked = false;
+          } else {
+            if (!a.blocked) { a.blocked = true; a.blockedSince = t; }
+            a.waitAisle += dt;
+            // stuck one row short of their seat: use the time to stow the bag here
+            if (a.bagUnits > 0 && !a.bagDone && Math.abs(a.row - a.cell) <= EARLY_STOW_ROWS && a.cell >= 1 && a.cell <= N && t - a.blockedSince >= 1) {
+              a.state = S.STOW; a.early = true;
+              a.busyUntil = t + doStow(a, a.cell);
+            }
+          }
+        } else if (a.state === S.STOW && a.early) {
+          if (t < a.busyUntil) continue;
+          a.state = S.WALK; a.early = false; a.nextAt = t; // bag done, carry on (still blocked until the cell frees)
+        } else if (a.state === S.STOW) {
+          if (t < a.busyUntil) continue;
+          const list = halfSeated.get(hk(a)) || [];
+          const blockers = list.filter((b) => b.fromAisle < a.fromAisle);
+          let extra = 0;
+          if (blockers.length) {
+            extra += (cfg.shuffleBase + cfg.shufflePer * blockers.length) * a.shuffleJ;
+            seatInterf += blockers.length;
+            for (const b of blockers) b.standUntil = t + extra;
+          }
+          let hold = 0;
+          if (a.holds) {
+            for (const h of a.holds) {
+              hold += h.dur;
+              countDis(h.type, h.dur);
+              events.push({ t, type: 'risk', text: `${RISK_TEXT[h.type] || h.type} (row ${a.row}, ${BS.fmtTime(h.dur)})` });
+            }
+          }
+          if (hold > 0) { a.state = S.INCIDENT; a.busyUntil = t + extra + hold; }
+          else if (extra > 0) { a.state = S.SHUFFLE; a.busyUntil = t + extra; }
+          else seatAgent(a);
+        } else if (a.state === S.SHUFFLE || a.state === S.INCIDENT) {
+          if (t >= a.busyUntil) seatAgent(a);
+        }
+      }
+      if (active.some((a) => a.state === S.SEATED)) active = active.filter((a) => a.state !== S.SEATED);
+
+      // --- record
+      if (record) {
+        if (t >= nextFrame - 1e-9) { snapshot(); nextFrame += frameDt; }
+        if (t >= nextSec - 1e-9) {
+          series.seated.push(seated); series.aisle.push(aisleInterf); series.seat.push(seatInterf);
+          series.inAisle.push(active.length);
+          let qd = 0; for (let d = 0; d < doors.length; d++) qd += doorQueues[d].length - doorHead[d];
+          series.queued.push(qd);
+          series.paused.push(paused ? 1 : 0);
+          nextSec += 1;
+        }
+      }
+      t += dt;
+    }
+    if (record) { snapshot(); series.seated.push(seated); series.aisle.push(aisleInterf); series.seat.push(seatInterf); series.inAisle.push(0); series.queued.push(0); series.paused.push(0); }
+    const offloadDelay = dis ? dis.flight.offload : 0;
+    if (offloadDelay > 0) {
+      countDis('offload', offloadDelay);
+      events.push({ t, type: 'risk', text: `No-show with checked bag: offload adds ${BS.fmtTime(offloadDelay)} before doors close` });
+    }
+
+    // --- metrics
+    const lastSeat = agents.reduce((m, a) => Math.max(m, a.seatedAt), 0);
+    const paxTimes = agents.map((a) => a.seatedAt - a.enterAt).sort((x, y) => x - y);
+    const waitTimes = agents.map((a) => a.waitAisle);
+    const seatedTimes = agents.map((a) => a.seatedAt).sort((x, y) => x - y);
+    const q = (arr, p) => arr[Math.min(arr.length - 1, Math.floor(p * arr.length))];
+    const res = {
+      strategyId: strategy.id, n, seed,
+      totalTime: lastSeat - Math.max(0, firstEnter),
+      firstEnter,
+      t50: seatedTimes[Math.ceil(n * 0.5) - 1] - firstEnter,
+      t90: seatedTimes[Math.ceil(n * 0.9) - 1] - firstEnter,
+      aisleInterf, seatInterf, gateChecked, binAway,
+      // disruptions: boarding time already includes them; offload only delays door close
+      disruptions: disCount, disruptionSec: disSec,
+      incidents: Object.values(disCount).reduce((x, y) => x + y, 0),
+      offloadDelay,
+      firstBinFull: firstBinFull < 0 ? null : firstBinFull - firstEnter,
+      avgAisleWait: waitTimes.reduce((s, x) => s + x, 0) / n,
+      avgPaxTime: paxTimes.reduce((s, x) => s + x, 0) / n,
+      p90PaxTime: q(paxTimes, 0.9),
+      doors: doors.map((d) => d.id),
+      // share of the boarding window in which passengers were ready at the door but the aisle was backed up.
+      // High → aisle-limited (the boarding method matters). Low → door/gate-limited (add a door or speed up the gate).
+      aisleLimited: Math.min(1, doorBlocked / Math.max(1, (lastSeat - Math.max(0, firstEnter)) * doors.length)),
+    };
+    res.readyTime = res.totalTime + offloadDelay; // boarding complete → ready to close doors
+    if (record) {
+      res.frames = frames;
+      res.frameDt = frameDt;
+      res.series = series;
+      res.events = events;
+      res.binEvents = binEvents;
+      res.binCap = binCap;
+      res.cells = cells;
+      res.doorCells = doors.map((d) => ({ id: d.id, cell: d.cell }));
+      res.agents = agents.map((a) => ({
+        id: a.id, row: a.row, lane: a.lane, side: a.side, slot: a.slot, fromAisle: a.fromAisle,
+        seatIdx: a.seat.idx, group: a.group, pre: a.pre, order: a.order, enterAt: a.enterAt,
+        seatedAt: a.seatedAt, party: a.party, gateChecked: a.gateChecked, bagUnits: a.bagUnits,
+      }));
+      res.duration = t;
+    }
+    return res;
+  };
+
+  // ---------- statistics helpers ----------
+  BS.stats = function (values) {
+    const v = values.slice().sort((a, b) => a - b);
+    const n = v.length;
+    const mean = v.reduce((s, x) => s + x, 0) / n;
+    const sd = Math.sqrt(v.reduce((s, x) => s + (x - mean) * (x - mean), 0) / Math.max(1, n - 1));
+    const q = (p) => {
+      const i = (n - 1) * p, lo = Math.floor(i), hi = Math.ceil(i);
+      return v[lo] + (v[hi] - v[lo]) * (i - lo);
+    };
+    return { n, mean, sd, min: v[0], max: v[n - 1], p10: q(0.1), p25: q(0.25), p50: q(0.5), p75: q(0.75), p90: q(0.9), values: v };
+  };
+
+  BS.fmtTime = function (sec) {
+    if (sec == null || !isFinite(sec)) return '–';
+    const s = Math.max(0, Math.round(sec));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+  <script>
+/* Boarding Lab — cabin renderer
+ * ---------------------------------------------------------------
+ * Draws one recorded simulation at an arbitrary time t (seconds) on a canvas.
+ * Horizontal cabin, nose on the left. Playback is pure: the sim was recorded
+ * up front, so scrubbing backwards and forwards is free.
+ */
+(function (root) {
+  'use strict';
+  const BS = (root.BS = root.BS || {});
+  const S = BS.STATE;
+
+  const css = (name, el) => getComputedStyle(el || document.documentElement).getPropertyValue(name).trim();
+
+  const hexToRgb = (hex) => {
+    const h = hex.replace('#', '');
+    const v = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+    return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+  };
+  const mix = (a, b, f) => {
+    const A = hexToRgb(a), B = hexToRgb(b);
+    return `rgb(${Math.round(A[0] + (B[0] - A[0]) * f)},${Math.round(A[1] + (B[1] - A[1]) * f)},${Math.round(A[2] + (B[2] - A[2]) * f)})`;
+  };
+
+  // perceptual-ish sequential ramp for "boarding order" colouring
+  const RAMP = ['#1E3A8A', '#2563EB', '#06B6D4', '#10B981', '#84CC16', '#EAB308', '#F97316', '#EF4444'];
+  const ramp = (f) => {
+    f = Math.max(0, Math.min(1, f)) * (RAMP.length - 1);
+    const i = Math.min(RAMP.length - 2, Math.floor(f));
+    return mix(RAMP[i], RAMP[i + 1], f - i);
+  };
+  BS.ramp = ramp;
+  BS.GROUP_COLORS = ['#2563EB', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#84CC16'];
+  BS.PRE_COLOR = '#64748B';
+
+  class CabinRenderer {
+    constructor(canvas) {
+      this.canvas = canvas;
+      this.ctx = canvas.getContext('2d');
+      this.res = null;
+      this.binT = -1;
+      this.readTheme();
+    }
+
+    readTheme() {
+      this.theme = {
+        fuselage: css('--cabin-fuselage') || '#fff',
+        fuselageStroke: css('--cabin-stroke') || '#d0d5dd',
+        aisle: css('--cabin-aisle') || '#f2f4f7',
+        seat: css('--seat-empty') || '#e4e7ec',
+        seatNone: css('--seat-none') || '#f2f4f7',
+        text: css('--text-3') || '#98a2b3',
+        walk: css('--agent-walk') || '#2563eb',
+        blocked: css('--agent-blocked') || '#ef4444',
+        stow: css('--agent-stow') || '#f59e0b',
+        shuffle: css('--agent-shuffle') || '#a855f7',
+        stand: css('--agent-stand') || '#f59e0b',
+        incident: css('--agent-incident') || '#dc2626',
+        bg: css('--surface') || '#fff',
+      };
+    }
+
+    /** Attach a recorded result. */
+    setResult(ac, res, strategy) {
+      this.ac = ac;
+      this.res = res;
+      this.strategy = strategy;
+      this.seatAgent = new Int32Array(ac.seats.length).fill(-1);
+      if (res) res.agents.forEach((a) => { this.seatAgent[a.seatIdx] = a.id; });
+      // compact group numbers → palette index (pre-boarders get their own neutral colour)
+      const gs = res ? [...new Set(res.agents.filter((a) => !a.pre).map((a) => a.group))].sort((x, y) => x - y) : [];
+      this.groupIdx = new Map(gs.map((g, i) => [g, i]));
+      this.groupCount = gs.length;
+      this.binFill = res ? new Float32Array(res.binCap.length) : null;
+      this.binPtr = 0;
+      this.binT = -1;
+      this.layout();
+    }
+
+    layout() {
+      const ac = this.ac;
+      if (!ac) return;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const W = Math.max(320, this.canvas.parentElement.clientWidth);
+      const nose = 34, tail = 22, padX = 10;
+      const cellW = (W - nose - tail - padX * 2) / (ac.N + 2);
+      const slotH = Math.max(7, Math.min(17, cellW * 0.78, 150 / ac.totalSlots + 6));
+      const padTop = 16, padBottom = 18;
+      const H = Math.round(padTop + ac.totalSlots * slotH + padBottom);
+      this.g = { W, H, nose, tail, padX, cellW, slotH, padTop, x0: padX + nose };
+      this.canvas.width = Math.round(W * dpr);
+      this.canvas.height = Math.round(H * dpr);
+      this.canvas.style.width = W + 'px';
+      this.canvas.style.height = H + 'px';
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    cellX(c) { return this.g.x0 + c * this.g.cellW; }
+    slotY(s) { return this.g.padTop + s * this.g.slotH; }
+
+    /** Bin fill at time t (incremental forward, recompute on rewind). */
+    updateBins(t) {
+      const ev = this.res.binEvents;
+      if (t < this.binT) { this.binFill.fill(0); this.binPtr = 0; }
+      while (this.binPtr < ev.length && ev[this.binPtr].t <= t) {
+        const e = ev[this.binPtr++];
+        this.binFill[e.k] += e.u;
+      }
+      this.binT = t;
+    }
+
+    draw(t, opts) {
+      opts = opts || {};
+      const { ctx, ac, g, theme } = this;
+      if (!ac) return;
+      const res = this.res;
+      ctx.clearRect(0, 0, g.W, g.H);
+
+      // ---- fuselage
+      const top = g.padTop - 7, bot = g.padTop + ac.totalSlots * g.slotH + 5;
+      const xL = g.x0 - 4, xR = this.cellX(ac.N + 2) + 2;
+      const mid = (top + bot) / 2, rad = (bot - top) / 2;
+      ctx.beginPath();
+      ctx.moveTo(xL, top);
+      ctx.lineTo(xR - 8, top);
+      ctx.quadraticCurveTo(xR + g.tail, top + 4, xR + g.tail, mid);
+      ctx.quadraticCurveTo(xR + g.tail, bot - 4, xR - 8, bot);
+      ctx.lineTo(xL, bot);
+      ctx.bezierCurveTo(xL - g.nose * 0.9, bot, xL - g.nose, mid + rad * 0.35, xL - g.nose, mid);
+      ctx.bezierCurveTo(xL - g.nose, mid - rad * 0.35, xL - g.nose * 0.9, top, xL, top);
+      ctx.closePath();
+      ctx.fillStyle = theme.fuselage;
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = theme.fuselageStroke;
+      ctx.stroke();
+
+      // ---- aisles
+      ctx.fillStyle = theme.aisle;
+      for (const s of ac.aisleSlots) ctx.fillRect(this.cellX(0), this.slotY(s) + 1, this.cellX(ac.N + 2) - this.cellX(0), g.slotH - 2);
+
+      // ---- doors
+      const doorCells = res ? res.doorCells : ac.doors.filter((d) => d.default).map((d) => ({ id: d.id, cell: d.cell }));
+      ctx.font = '600 9px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      for (const d of doorCells) {
+        const x = this.cellX(d.cell) + g.cellW / 2;
+        ctx.fillStyle = css('--accent') || '#2563eb';
+        ctx.fillRect(x - Math.max(4, g.cellW * 0.35), top - 3, Math.max(8, g.cellW * 0.7), 4);
+        ctx.fillText(d.id, x, top - 6);
+      }
+
+      // ---- bins
+      if (res && opts.bins !== false) {
+        this.updateBins(t);
+        const cells = res.cells;
+        for (let lane = 0; lane < ac.lanes; lane++) {
+          const aisleSlot = ac.aisleSlots[lane];
+          for (let side = 0; side < 2; side++) {
+            const y = side === 0 ? this.slotY(aisleSlot) - 1.5 : this.slotY(aisleSlot + 1) - 0.5;
+            for (let r = 1; r <= ac.N; r++) {
+              const k = (lane * 2 + side) * cells + r;
+              const cap = res.binCap[k];
+              if (cap <= 0) continue;
+              const f = Math.min(1, this.binFill[k] / cap);
+              if (f <= 0) continue;
+              ctx.fillStyle = f >= 0.999 ? '#EF4444' : f > 0.7 ? '#F59E0B' : '#22C55E';
+              ctx.globalAlpha = 0.35 + 0.65 * f;
+              ctx.fillRect(this.cellX(r) + 1, y, (g.cellW - 2) * f, 2);
+            }
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // ---- seats
+      const n = res ? res.n : 0;
+      let frame = null, frame2 = null, ff = 0;
+      if (res) {
+        const fi = t / res.frameDt;
+        const i0 = Math.max(0, Math.min(res.frames.length - 1, Math.floor(fi)));
+        frame = res.frames[i0];
+        frame2 = res.frames[Math.min(res.frames.length - 1, i0 + 1)];
+        ff = Math.max(0, Math.min(1, fi - i0));
+      }
+      const mode = opts.colorBy || 'status';
+      const accent = this.strategy ? this.strategy.color : '#2563eb';
+      const sw = g.cellW - Math.max(1.5, g.cellW * 0.14);
+      const sh = g.slotH - Math.max(1.5, g.slotH * 0.16);
+      const rr = Math.min(3, sh * 0.25);
+      for (const s of ac.seats) {
+        const x = this.cellX(s.row) + (g.cellW - sw) / 2;
+        const y = this.slotY(s.slot) + (g.slotH - sh) / 2;
+        const aid = this.seatAgent[s.idx];
+        let fill;
+        let stroke = null;
+        if (aid < 0) {
+          fill = theme.seatNone;
+          stroke = theme.seat;
+        } else {
+          const a = res.agents[aid];
+          const st = frame.st[aid];
+          const seated = st === S.SEATED || st === S.STANDING;
+          const useRamp = mode === 'order' || (mode === 'group' && this.groupCount > 8);
+          const base = useRamp ? ramp(a.order / Math.max(1, n - 1))
+            : mode === 'group' ? (a.pre ? BS.PRE_COLOR : BS.GROUP_COLORS[this.groupIdx.get(a.group) % BS.GROUP_COLORS.length])
+            : accent;
+          if (seated) fill = base;
+          else if (mode === 'status') fill = theme.seat;
+          else { fill = base; ctx.globalAlpha = 0.22; }
+          if (st === S.STANDING) stroke = theme.stand;
+        }
+        ctx.fillStyle = fill;
+        roundRect(ctx, x, y, sw, sh, rr);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        if (stroke) { ctx.lineWidth = aid < 0 ? 1 : 2; ctx.strokeStyle = stroke; ctx.stroke(); }
+      }
+
+      // ---- row labels
+      ctx.fillStyle = theme.text;
+      ctx.font = '500 9px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      const step = g.cellW < 14 ? 10 : 5;
+      for (let r = 1; r <= ac.N; r++) {
+        if (r === 1 || r % step === 0) ctx.fillText(String(r), this.cellX(r) + g.cellW / 2, bot + 11);
+      }
+
+      // ---- passengers in the aisle
+      if (res) {
+        const rad = Math.max(2.5, Math.min(g.slotH * 0.36, g.cellW * 0.36));
+        for (let i = 0; i < n; i++) {
+          const st = frame.st[i];
+          if (st === S.QUEUED || st === S.SEATED || st === S.STANDING) continue;
+          const a = res.agents[i];
+          let p = frame.pos[i];
+          const st2 = frame2.st[i];
+          if (st2 !== S.QUEUED && st2 !== S.SEATED && st2 !== S.STANDING) p = p + (frame2.pos[i] - p) * ff;
+          const x = this.cellX(p) + g.cellW / 2;
+          const y = this.slotY(ac.aisleSlots[a.lane]) + g.slotH / 2;
+          const c = st === S.BLOCKED ? theme.blocked : st === S.STOW ? theme.stow : st === S.SHUFFLE ? theme.shuffle
+            : st === S.INCIDENT ? theme.incident : theme.walk;
+          if (st === S.INCIDENT) { // halo so disruptions stand out
+            ctx.beginPath();
+            ctx.arc(x, y, rad * 1.9, 0, Math.PI * 2);
+            ctx.fillStyle = c;
+            ctx.globalAlpha = 0.18;
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
+          ctx.beginPath();
+          ctx.arc(x, y, rad, 0, Math.PI * 2);
+          ctx.fillStyle = c;
+          ctx.fill();
+          ctx.lineWidth = 1.25;
+          ctx.strokeStyle = theme.fuselage;
+          ctx.stroke();
+          if (st === S.STOW && a.bagUnits > 0 && rad > 3) { // little bag
+            ctx.fillStyle = theme.fuselage;
+            ctx.fillRect(x - rad * 0.35, y - rad * 0.35, rad * 0.7, rad * 0.7);
+          }
+        }
+      }
+    }
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  /** Small static seat map coloured by boarding order (used in the Methods guide). */
+  BS.drawPattern = function (canvas, ac, strategy, cfg) {
+    const pax = BS.generatePassengers(ac, { ...cfg, loadFactor: 1, partyShare: 0, prmShare: 0 }, 7);
+    const q = BS.buildQueue(ac, pax, strategy, { ...cfg, compliance: 1, preboard: false, partyShare: 0 }, 7);
+    const orderOf = new Map();
+    q.forEach((e, i) => orderOf.set(e.p.seat.idx, i));
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = canvas.parentElement.clientWidth || 280;
+    const cellW = (W - 8) / ac.N;
+    const slotH = Math.min(10, cellW * 0.9);
+    const H = ac.totalSlots * slotH + 6;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const n = q.length;
+    for (const s of ac.seats) {
+      const o = orderOf.get(s.idx);
+      ctx.fillStyle = strategy.openSeating ? '#CBD5E1' : ramp(o / Math.max(1, n - 1));
+      roundRect(ctx, 4 + (s.row - 1) * cellW + 0.75, 3 + s.slot * slotH + 0.75, cellW - 1.5, slotH - 1.5, 1.5);
+      ctx.fill();
+    }
+  };
+
+  BS.CabinRenderer = CabinRenderer;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+  <script>
+/* Boarding Lab — tiny dependency-free SVG charts */
+(function (root) {
+  'use strict';
+  const BS = (root.BS = root.BS || {});
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  const niceStep = (range, target) => {
+    const raw = range / Math.max(1, target);
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / mag;
+    return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+  };
+  // Row labels: margin sized to the longest label (≈6.6 px/char at 12 px), capped at 42% of the width;
+  // labels that still don't fit are truncated with an ellipsis and keep the full name as a tooltip.
+  const CHAR_W = 6.6;
+  const labelMargin = (rows, W) => Math.round(Math.max(70, Math.min(W * 0.42, Math.max(...rows.map((r) => r.name.length)) * CHAR_W + 18)));
+  const labelText = (name, x, y, maxW) => {
+    const maxChars = Math.max(4, Math.floor(maxW / CHAR_W));
+    const shown = name.length > maxChars ? name.slice(0, maxChars - 1).trimEnd() + '…' : name;
+    return `<text x="${x}" y="${y}" text-anchor="end" class="label"><title>${esc(name)}</title>${esc(shown)}</text>`;
+  };
+
+  const timeStep = (range, target) => {
+    const steps = [30, 60, 120, 180, 300, 600, 900, 1200, 1800];
+    const raw = range / Math.max(1, target);
+    return steps.find((s) => s >= raw) || 3600;
+  };
+
+  /**
+   * Line chart.
+   * series: [{ name, color, points: [[x,y],...], dash? }]
+   */
+  BS.lineChart = function (o) {
+    const W = o.width || 560, H = o.height || 220;
+    const m = { l: 44, r: 12, t: 12, b: 26 };
+    const xMax = o.xMax || Math.max(1, ...o.series.flatMap((s) => s.points.map((p) => p[0])));
+    const xMin = o.xMin || 0;
+    const yMax = o.yMax != null ? o.yMax : Math.max(1, ...o.series.flatMap((s) => s.points.map((p) => p[1])));
+    const yMin = o.yMin || 0;
+    const X = (x) => m.l + ((x - xMin) / (xMax - xMin || 1)) * (W - m.l - m.r);
+    const Y = (y) => H - m.b - ((y - yMin) / (yMax - yMin || 1)) * (H - m.t - m.b);
+    const nx = Math.max(3, Math.min(8, Math.floor(W / 80)));
+    const xStep = o.xTime ? timeStep(xMax - xMin, nx) : niceStep(xMax - xMin, nx);
+    const yStep = niceStep(yMax - yMin, 4);
+    let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(o.label || 'chart')}">`;
+    for (let y = Math.ceil(yMin / yStep) * yStep; y <= yMax + 1e-9; y += yStep) {
+      s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(y)}" y2="${Y(y)}" class="grid"/>`;
+      s += `<text x="${m.l - 6}" y="${Y(y) + 3}" text-anchor="end" class="tick">${esc(o.yFmt ? o.yFmt(y) : y)}</text>`;
+    }
+    for (let x = Math.ceil(xMin / xStep) * xStep; x <= xMax + 1e-9; x += xStep) {
+      s += `<text x="${X(x)}" y="${H - 8}" text-anchor="middle" class="tick">${esc(o.xFmt ? o.xFmt(x) : x)}</text>`;
+    }
+    for (const se of o.series) {
+      if (!se.points.length) continue;
+      const d = se.points.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
+      s += `<path d="${d}" fill="none" stroke="${se.color}" stroke-width="${se.width || 2}" stroke-linejoin="round" stroke-linecap="round" ${se.dash ? 'stroke-dasharray="4 3"' : ''}/>`;
+      if (o.dots) for (const p of se.points) s += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3" fill="${se.color}"/>`;
+    }
+    if (o.cursor != null) s += `<line x1="${X(o.cursor)}" x2="${X(o.cursor)}" y1="${m.t}" y2="${H - m.b}" class="cursor"/>`;
+    if (o.hline != null) s += `<line x1="${m.l}" x2="${W - m.r}" y1="${Y(o.hline)}" y2="${Y(o.hline)}" class="target"/>`;
+    s += '</svg>';
+    return s;
+  };
+
+  /**
+   * Horizontal box plot: whiskers p10–p90, box p25–p75, line median, dot mean.
+   * rows: [{ name, color, stats }]
+   */
+  BS.boxPlot = function (o) {
+    const rows = o.rows;
+    const W = Math.max(280, o.width || 640), rowH = 32;
+    const m = { l: labelMargin(rows, W), r: 14, t: 8, b: 26 };
+    const H = m.t + m.b + rows.length * rowH;
+    const lo = Math.min(...rows.map((r) => r.stats.min));
+    const hi = Math.max(...rows.map((r) => r.stats.max));
+    const pad = (hi - lo) * 0.06 || 30;
+    const xMin = Math.max(0, lo - pad), xMax = hi + pad;
+    const X = (x) => m.l + ((x - xMin) / (xMax - xMin)) * (W - m.l - m.r);
+    const step = timeStep(xMax - xMin, Math.max(3, Math.min(8, Math.floor((W - m.l) / 70))));
+    let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Boarding time distribution">`;
+    for (let x = Math.ceil(xMin / step) * step; x <= xMax; x += step) {
+      s += `<line x1="${X(x)}" x2="${X(x)}" y1="${m.t}" y2="${H - m.b}" class="grid"/>`;
+      s += `<text x="${X(x)}" y="${H - 8}" text-anchor="middle" class="tick">${BS.fmtTime(x)}</text>`;
+    }
+    if (o.target) s += `<line x1="${X(o.target)}" x2="${X(o.target)}" y1="${m.t}" y2="${H - m.b}" class="target"/>`;
+    rows.forEach((r, i) => {
+      const y = m.t + i * rowH + rowH / 2;
+      const st = r.stats;
+      s += labelText(r.name, m.l - 12, y + 4, m.l - 16);
+      s += `<line x1="${X(st.p10)}" x2="${X(st.p90)}" y1="${y}" y2="${y}" stroke="${r.color}" stroke-width="1.5"/>`;
+      s += `<line x1="${X(st.p10)}" x2="${X(st.p10)}" y1="${y - 6}" y2="${y + 6}" stroke="${r.color}" stroke-width="1.5"/>`;
+      s += `<line x1="${X(st.p90)}" x2="${X(st.p90)}" y1="${y - 6}" y2="${y + 6}" stroke="${r.color}" stroke-width="1.5"/>`;
+      s += `<rect x="${X(st.p25)}" y="${y - 10}" width="${Math.max(2, X(st.p75) - X(st.p25))}" height="20" rx="4" fill="${r.color}" fill-opacity="0.18" stroke="${r.color}" stroke-width="1.5"/>`;
+      s += `<line x1="${X(st.p50)}" x2="${X(st.p50)}" y1="${y - 10}" y2="${y + 10}" stroke="${r.color}" stroke-width="2.5"/>`;
+      s += `<circle cx="${X(st.mean)}" cy="${y}" r="3" fill="var(--surface)" stroke="${r.color}" stroke-width="1.5"/>`;
+      // jittered raw samples
+      if (st.values.length <= 400) {
+        const rnd = BS.rng(i + 1);
+        for (const v of st.values) s += `<circle cx="${X(v).toFixed(1)}" cy="${(y + (rnd() - 0.5) * 16).toFixed(1)}" r="1.2" fill="${r.color}" fill-opacity="0.35"/>`;
+      }
+    });
+    s += '</svg>';
+    return s;
+  };
+
+  /** Simple horizontal bars (value per row). */
+  BS.barChart = function (o) {
+    const rows = o.rows;
+    const W = Math.max(240, o.width || 360), rowH = 26, m = { l: labelMargin(rows, W), r: 48, t: 4, b: 4 };
+    const H = m.t + m.b + rows.length * rowH;
+    const max = Math.max(1e-9, ...rows.map((r) => r.value));
+    let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(o.label || 'bars')}">`;
+    rows.forEach((r, i) => {
+      const y = m.t + i * rowH;
+      const w = ((W - m.l - m.r) * r.value) / max;
+      s += labelText(r.name, m.l - 8, y + rowH / 2 + 4, m.l - 12);
+      s += `<rect x="${m.l}" y="${y + 5}" width="${Math.max(2, w)}" height="${rowH - 10}" rx="4" fill="${r.color}"/>`;
+      s += `<text x="${m.l + w + 6}" y="${y + rowH / 2 + 4}" class="value">${esc(o.fmt ? o.fmt(r.value) : r.value)}</text>`;
+    });
+    return s + '</svg>';
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+  <script>
+/* Boarding Lab — UI controller
+ * Wires the sidebar, the five views (Simulate / Analyze / Risk / Plan / Methods),
+ * playback, URL state and the Monte Carlo runner.
+ */
+(function () {
+  'use strict';
+  const BS = window.BS;
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const pct = (v) => Math.round(v * 100) + '%';
+  const fmt = BS.fmtTime;
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const MAX_LANES = 4;
+
+  // ---------------------------------------------------------------- params
+  const PARAMS = {
+    pax: [
+      { key: 'loadFactor', label: 'Load factor', min: 0.3, max: 1, step: 0.01, fmt: pct, help: 'Share of seats occupied' },
+      { key: 'carryOnShare', label: 'Roller bags', min: 0, max: 1, step: 0.05, fmt: pct, help: 'Passengers with a bag for the overhead bin' },
+      { key: 'binCapacity', label: 'Bin space', min: 0.3, max: 1.2, step: 0.05, fmt: (v) => v.toFixed(2) + ' / seat', help: 'Roller bags that fit per seat' },
+      { key: 'partyShare', label: 'Travel parties', min: 0, max: 0.8, step: 0.05, fmt: pct, help: 'Couples and families who sit together and board together' },
+      { key: 'slowShare', label: 'Slow walkers', min: 0, max: 0.3, step: 0.01, fmt: pct },
+    ],
+    ops: [
+      { key: 'compliance', label: 'Group discipline', min: 0.4, max: 1, step: 0.05, fmt: pct, help: 'Share of passengers who board with their own group' },
+      { key: 'headway', label: 'Door flow', min: 1, max: 8, step: 0.1, fmt: (v) => v.toFixed(1) + ' s/pax', help: 'Minimum gap between passengers entering one door' },
+      { key: 'eliteShare', label: 'Status holders', min: 0, max: 0.5, step: 0.01, fmt: pct, help: 'Frequent-flyer tiers boarding early. Used by the airline-group methods.' },
+      { key: 'priorityShare', label: 'Paid priority / cards', min: 0, max: 0.4, step: 0.01, fmt: pct },
+      { key: 'basicShare', label: 'Basic economy', min: 0, max: 0.5, step: 0.01, fmt: pct, help: 'Boards last; seats mostly middles towards the back' },
+    ],
+    adv: [
+      { key: 'walkSec', label: 'Walk time per row', min: 0.5, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) + ' s' },
+      { key: 'stowSec', label: 'Bag stow time', min: 2, max: 15, step: 0.5, fmt: (v) => v.toFixed(1) + ' s', help: 'Mean time to stow into an empty bin' },
+      { key: 'shuffleBase', label: 'Seat shuffle: fixed', min: 0, max: 10, step: 0.5, fmt: (v) => v.toFixed(1) + ' s' },
+      { key: 'shufflePer', label: 'Seat shuffle: per person', min: 0, max: 8, step: 0.5, fmt: (v) => v.toFixed(1) + ' s' },
+      { key: 'prmShare', label: 'Passengers needing assistance', min: 0, max: 0.05, step: 0.005, fmt: (v) => (v * 100).toFixed(1) + '%' },
+    ],
+  };
+  const ALL_PARAMS = [...PARAMS.pax, ...PARAMS.ops, ...PARAMS.adv];
+  const MODEL_KEYS = PARAMS.adv.map((p) => p.key);
+
+  // ---------------------------------------------------------------- state
+  const state = {
+    acId: 'a320-lcc', preset: 'scheduled', cfg: null, strategies: ['airline-fare', 'btf-zones', 'wilma', 'steffen'],
+    seed: 42, colorBy: 'status', bins: true, speed: 10, t: 0, tEnd: 1, playing: false,
+    results: [], lanes: [], ac: null, mc: null, mcScope: 'all', mcReps: 50, mcRunning: false,
+    view: 'simulate', plan: null, risk: null, riskLevel: 'realistic', riskReps: 50,
+  };
+  const cfgFromPreset = (p) => ({ ...BS.DEFAULTS, ...BS.PRESETS[p].cfg });
+
+  // ---------------------------------------------------------------- URL state
+  function readHash() {
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (h.get('a') && BS.AIRCRAFT.some((a) => a.id === h.get('a'))) state.acId = h.get('a');
+    if (h.get('p') && (BS.PRESETS[h.get('p')] || h.get('p') === 'custom')) state.preset = h.get('p');
+    state.cfg = cfgFromPreset(state.preset === 'custom' ? 'scheduled' : state.preset);
+    if (h.get('c')) { try { Object.assign(state.cfg, JSON.parse(atob(h.get('c')))); } catch (e) { /* ignore */ } }
+    if (h.get('s')) {
+      const ids = h.get('s').split(',').filter((id) => BS.getStrategy(id)).slice(0, MAX_LANES);
+      if (ids.length) state.strategies = ids;
+    }
+    if (h.get('seed')) state.seed = Math.max(1, parseInt(h.get('seed'), 10) || 42);
+    if (h.get('v') && ['simulate', 'analyze', 'risk', 'plan', 'methods'].includes(h.get('v'))) state.view = h.get('v');
+  }
+  function writeHash() {
+    const base = cfgFromPreset(state.preset === 'custom' ? 'scheduled' : state.preset);
+    const diff = {};
+    for (const k of Object.keys(state.cfg)) {
+      if (JSON.stringify(state.cfg[k]) !== JSON.stringify(base[k])) diff[k] = state.cfg[k];
+    }
+    const h = new URLSearchParams();
+    h.set('a', state.acId); h.set('p', state.preset); h.set('s', state.strategies.join(',')); h.set('seed', state.seed);
+    if (Object.keys(diff).length) h.set('c', btoa(JSON.stringify(diff)));
+    if (state.view !== 'simulate') h.set('v', state.view);
+    try { history.replaceState(null, '', '#' + h.toString()); } catch (e) { /* sandboxed embeds may forbid history access */ }
+  }
+  const scenarioKey = () => JSON.stringify([state.acId, state.cfg, state.seed]);
+
+  // ---------------------------------------------------------------- sidebar
+  function buildSidebar() {
+    // presets
+    const ps = $('#presetSelect');
+    ps.innerHTML = Object.entries(BS.PRESETS).map(([k, p]) => `<option value="${k}">${esc(p.label)}</option>`).join('') + '<option value="custom">Custom</option>';
+    ps.addEventListener('change', () => {
+      if (ps.value === 'custom') return;
+      const { doors, risk, riskEdits } = state.cfg;
+      const model = Object.fromEntries(MODEL_KEYS.filter((k) => !(k in BS.PRESETS[ps.value].cfg)).map((k) => [k, state.cfg[k]]));
+      state.preset = ps.value;
+      state.cfg = { ...cfgFromPreset(ps.value), ...model, doors, risk, riskEdits };
+      syncSidebar();
+      rebuildSoon(0);
+    });
+
+    // aircraft
+    const as = $('#aircraftSelect');
+    const fams = [...new Set(BS.AIRCRAFT.map((a) => a.family))];
+    as.innerHTML = fams.map((f) => `<optgroup label="${esc(f)}">${BS.AIRCRAFT.filter((a) => a.family === f).map((a) => `<option value="${a.id}">${esc(a.name)}: ${esc(a.variant)}</option>`).join('')}</optgroup>`).join('');
+    as.addEventListener('change', () => {
+      state.acId = as.value;
+      state.cfg.doors = null;
+      syncSidebar();
+      rebuildSoon(0);
+    });
+
+    // strategies
+    const sl = $('#stratList');
+    sl.innerHTML = BS.STRATEGIES.map((s) => `
+      <div class="strat-item" data-id="${s.id}" role="checkbox" tabindex="0" title="${esc(s.tagline)}">
+        <span class="cb"></span><span class="sw" style="background:${s.color}"></span><span class="nm">${esc(s.name)}</span>
+      </div>`).join('');
+    sl.addEventListener('click', (e) => { const it = e.target.closest('.strat-item'); if (it) toggleStrategy(it.dataset.id); });
+    sl.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && e.target.classList.contains('strat-item')) { e.preventDefault(); toggleStrategy(e.target.dataset.id); } });
+
+    // params
+    const mk = (list, host) => {
+      host.innerHTML = list.map((p) => `
+        <div class="param">
+          <div class="param-top"><label for="p-${p.key}">${esc(p.label)}</label><span class="val" id="v-${p.key}"></span></div>
+          <input type="range" id="p-${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" />
+          ${p.help ? `<small>${esc(p.help)}</small>` : ''}
+        </div>`).join('');
+      for (const p of list) {
+        const inp = $(`#p-${p.key}`);
+        inp.addEventListener('input', () => {
+          state.cfg[p.key] = parseFloat(inp.value);
+          if (!MODEL_KEYS.includes(p.key)) markCustom();
+          paintParam(p);
+          rebuildSoon();
+        });
+      }
+    };
+    mk(PARAMS.pax, $('#paxParams'));
+    mk(PARAMS.ops, $('#opsParams'));
+    mk(PARAMS.adv, $('#advParams'));
+
+    $('#preboardToggle').addEventListener('change', (e) => { state.cfg.preboard = e.target.checked; markCustom(); rebuildSoon(0); });
+    $$('#riskSeg button').forEach((b) => b.addEventListener('click', () => {
+      state.cfg.risk = b.dataset.v;
+      syncSidebar();
+      rebuildSoon(0);
+    }));
+    $('#resetModelBtn').addEventListener('click', () => {
+      for (const k of MODEL_KEYS) state.cfg[k] = BS.DEFAULTS[k];
+      if (BS.PRESETS[state.preset]) Object.assign(state.cfg, Object.fromEntries(Object.entries(BS.PRESETS[state.preset].cfg).filter(([k]) => MODEL_KEYS.includes(k))));
+      syncSidebar();
+      rebuildSoon(0);
+    });
+    $('#seedInput').addEventListener('change', (e) => { state.seed = Math.max(1, parseInt(e.target.value, 10) || 1); rebuildSoon(0); });
+    $('#diceBtn').addEventListener('click', () => { state.seed = 1 + Math.floor(Math.random() * 99999); $('#seedInput').value = state.seed; rebuildSoon(0); });
+  }
+
+  function paintParam(p) {
+    const inp = $(`#p-${p.key}`);
+    const v = state.cfg[p.key];
+    inp.value = v;
+    inp.style.setProperty('--p', ((v - p.min) / (p.max - p.min)) * 100 + '%');
+    $(`#v-${p.key}`).textContent = p.fmt(v);
+  }
+
+  function markCustom() {
+    if (state.preset !== 'custom') { state.preset = 'custom'; $('#presetSelect').value = 'custom'; $('#presetHint').textContent = 'Custom settings, based on the last preset you picked.'; }
+  }
+
+  function syncSidebar() {
+    $('#presetSelect').value = state.preset;
+    $('#presetHint').textContent = BS.PRESETS[state.preset] ? BS.PRESETS[state.preset].hint : 'Custom settings, based on the last preset you picked.';
+    $('#aircraftSelect').value = state.acId;
+    const ac = BS.getAircraft(state.acId);
+    const aisles = ac.lanes === 1 ? 'Single aisle' : `${ac.lanes} aisles`;
+    $('#acSpec').innerHTML = `<span>${ac.seats.length} seats</span><span>${ac.N} rows</span><span>${esc(ac.layoutLabel)}</span><span>${aisles}</span><p>${esc(ac.def.note || '')}</p>`;
+    const active = state.cfg.doors || ac.doors.filter((d) => d.default).map((d) => d.id);
+    $('#doorChips').innerHTML = ac.doors.map((d) => {
+      const pos = d.cell === 0 ? 'front' : d.cell === ac.N + 1 ? 'rear' : `row ${d.cell}`;
+      return `<span class="chip ${active.includes(d.id) ? 'on' : ''}" data-door="${esc(d.id)}">${esc(d.id)} <span class="pos">${pos}</span></span>`;
+    }).join('');
+    $$('#doorChips .chip').forEach((c) => c.addEventListener('click', () => {
+      const cur = new Set(state.cfg.doors || ac.doors.filter((d) => d.default).map((d) => d.id));
+      if (cur.has(c.dataset.door)) { if (cur.size === 1) return toast('At least one door must be open'); cur.delete(c.dataset.door); } else cur.add(c.dataset.door);
+      state.cfg.doors = ac.doors.map((d) => d.id).filter((id) => cur.has(id));
+      syncSidebar();
+      rebuildSoon(0);
+    }));
+    ALL_PARAMS.forEach(paintParam);
+    $('#preboardToggle').checked = !!state.cfg.preboard;
+    $$('#riskSeg button').forEach((b) => b.classList.toggle('on', b.dataset.v === (state.cfg.risk || 'off')));
+    $('#seedInput').value = state.seed;
+    syncStrategies();
+  }
+
+  function syncStrategies() {
+    $$('#stratList .strat-item').forEach((it) => {
+      const on = state.strategies.includes(it.dataset.id);
+      it.classList.toggle('on', on);
+      it.setAttribute('aria-checked', on);
+      it.classList.toggle('disabled', !on && state.strategies.length >= MAX_LANES);
+    });
+    $('#stratCount').textContent = `${state.strategies.length}/${MAX_LANES}`;
+  }
+
+  function toggleStrategy(id) {
+    const i = state.strategies.indexOf(id);
+    if (i >= 0) {
+      if (state.strategies.length === 1) return toast('Select at least one method');
+      state.strategies.splice(i, 1);
+    } else {
+      if (state.strategies.length >= MAX_LANES) return toast(`Compare up to ${MAX_LANES} methods at once. Deselect one first.`);
+      state.strategies.push(id);
+    }
+    syncStrategies();
+    rebuildSoon(0);
+  }
+
+  // ---------------------------------------------------------------- simulate
+  let rebuildTimer = null;
+  function rebuildSoon(delay = 180) {
+    clearTimeout(rebuildTimer);
+    rebuildTimer = setTimeout(rebuild, delay);
+  }
+
+  function rebuild() {
+    const wasPlaying = state.playing;
+    setPlaying(false);
+    state.ac = BS.getAircraft(state.acId);
+    const pax = BS.generatePassengers(state.ac, state.cfg, state.seed);
+    state.results = state.strategies.map((id) => {
+      const s = BS.getStrategy(id);
+      return { s, r: BS.runSim(state.ac, pax, s, state.cfg, state.seed, { record: true }) };
+    });
+    state.tEnd = Math.ceil(Math.max(...state.results.map((x) => x.r.firstEnter + x.r.totalTime))) + 2;
+    state.t = 0;
+    buildLanes();
+    buildMarkers();
+    buildEvents();
+    updateHeader();
+    renderFrame(true);
+    writeHash();
+    updateMcStale();
+    if (state.view === 'methods') buildMethods();
+    if (wasPlaying) setPlaying(true);
+  }
+
+  function updateHeader() {
+    const ac = state.ac;
+    $('#simTitle').textContent = `${ac.name}`;
+    const doors = state.results[0] ? state.results[0].r.doors.join(' + ') : '';
+    const presetLabel = BS.PRESETS[state.preset] ? BS.PRESETS[state.preset].label : 'Custom scenario';
+    const riskLabel = state.cfg.risk && state.cfg.risk !== 'off' ? ` · disruptions: ${BS.RISK_LEVELS[state.cfg.risk].toLowerCase()}` : '';
+    $('#simSub').textContent = `${ac.variant} · ${state.results[0] ? state.results[0].r.n : 0} passengers · door ${doors} · ${presetLabel}${riskLabel}`;
+    document.title = `${ac.name} · Boarding Lab`;
+  }
+
+  function buildLanes() {
+    const host = $('#lanes');
+    host.innerHTML = '';
+    host.dataset.color = state.colorBy;
+    state.lanes = state.results.map(({ s, r }) => {
+      const card = document.createElement('div');
+      card.className = 'lane-card';
+      card.innerHTML = `
+        <div class="lane-head">
+          <span class="sw" style="background:${s.color}"></span>
+          <div class="lane-name">${esc(s.name)}<span class="lane-tag">${esc(s.short)}</span></div>
+          <div class="lane-stats">
+            <span class="seatcount"></span>
+            <span class="badge status"></span>
+            <span class="clock">0:00</span>
+          </div>
+        </div>
+        <div class="lane-progress"><div style="background:${s.color}"></div></div>
+        <div class="canvas-wrap"><canvas></canvas></div>
+        <div class="group-legend"></div>`;
+      host.appendChild(card);
+      const renderer = new BS.CabinRenderer($('canvas', card));
+      renderer.setResult(state.ac, r, s);
+      // boarding-call legend (shown in "Groups" colour mode)
+      const labels = new Map(s.groupCalls || []);
+      const chips = [];
+      if (r.agents.some((a) => a.pre)) chips.push(`<span><i style="background:${BS.PRE_COLOR}"></i>Pre-boarding: assistance, families${s.preboard ? '' : ', premium'}</span>`);
+      if (renderer.groupCount <= 8) {
+        for (const [g, i] of renderer.groupIdx) chips.push(`<span><i style="background:${BS.GROUP_COLORS[i % BS.GROUP_COLORS.length]}"></i>${esc(labels.get(g) || `Group ${i + 1}`)}</span>`);
+      } else chips.push('<span class="muted">Strict single-file order: seats coloured from first (blue) to last (red)</span>');
+      $('.group-legend', card).innerHTML = chips.join('');
+      return {
+        s, r, card, renderer, clock: $('.clock', card), badge: $('.status', card),
+        count: $('.seatcount', card), bar: $('.lane-progress div', card), finish: r.firstEnter + r.totalTime,
+      };
+    });
+    const ranked = state.lanes.slice().sort((a, b) => a.finish - b.finish);
+    ranked.forEach((l, i) => { l.rank = i + 1; });
+  }
+
+  const ordinal = (n) => n + (['th', 'st', 'nd', 'rd'][(n % 100 > 10 && n % 100 < 14) ? 0 : n % 10 < 4 ? n % 10 : 0] || 'th');
+
+  let lastSide = 0;
+  function renderFrame(force) {
+    const t = state.t;
+    for (const l of state.lanes) {
+      l.renderer.draw(t, { colorBy: state.colorBy, bins: state.bins });
+      const r = l.r;
+      const sec = Math.min(r.series.seated.length - 1, Math.floor(t));
+      const seated = r.series.seated[Math.max(0, sec)];
+      const done = t >= l.finish;
+      l.clock.textContent = fmt(done ? r.totalTime : Math.max(0, t - r.firstEnter));
+      l.count.textContent = `${seated}/${r.n}`;
+      l.bar.style.width = (seated / r.n) * 100 + '%';
+      if (done) {
+        l.badge.textContent = l.rank === 1 ? '1st · fastest' : `${ordinal(l.rank)} · +${fmt(l.finish - state.lanes.find((x) => x.rank === 1).finish)}`;
+        l.badge.className = 'badge status ' + (l.rank === 1 ? 'good' : '');
+        l.card.classList.toggle('winner', l.rank === 1);
+      } else {
+        const inAisle = r.series.inAisle[Math.max(0, sec)] || 0;
+        const paused = r.series.paused && r.series.paused[Math.max(0, sec)];
+        l.badge.textContent = t <= 0 ? 'Ready' : paused ? 'Boarding paused' : `${inAisle} in aisle`;
+        l.badge.className = 'badge status ' + (paused ? 'bad' : 'accent');
+        l.card.classList.remove('winner');
+      }
+    }
+    // transport
+    const f = Math.min(1, t / state.tEnd);
+    $('#scrubFill').style.width = f * 100 + '%';
+    $('#scrubThumb').style.left = f * 100 + '%';
+    $('#tNow').textContent = fmt(t);
+    $('#tEnd').textContent = fmt(state.tEnd);
+    $('#liveClock').textContent = `t = ${fmt(t)}`;
+    $('#scrubber').setAttribute('aria-valuenow', Math.round(t));
+    // side panel (throttled while playing)
+    const now = performance.now();
+    if (force || !state.playing || now - lastSide > 220) {
+      lastSide = now;
+      renderLiveTable();
+      renderLiveChart();
+      $$('#eventList li').forEach((li) => li.classList.toggle('future', parseFloat(li.dataset.t) > t));
+    }
+  }
+
+  function renderLiveTable() {
+    const t = state.t;
+    const rows = state.lanes.map((l) => {
+      const r = l.r;
+      const sec = Math.max(0, Math.min(r.series.seated.length - 1, Math.floor(t)));
+      const done = t >= l.finish;
+      return { l, done, time: done ? r.totalTime : Math.max(0, t - r.firstEnter), seated: r.series.seated[sec] / r.n, aisle: r.series.aisle[sec], seat: r.series.seat[sec] };
+    });
+    const allDone = rows.every((x) => x.done);
+    $('#liveTable').innerHTML = `
+      <thead><tr><th>Method</th><th>Time</th><th>Seated</th><th title="Aisle interferences: someone blocked ≥ 1 s">Aisle</th><th title="Seated neighbours who had to stand up">Seat</th></tr></thead>
+      <tbody>${rows.map((x) => `
+        <tr class="${allDone && x.l.rank === 1 ? 'best' : ''}">
+          <td><span class="nm"><i style="background:${x.l.s.color}"></i>${esc(x.l.s.short)}</span></td>
+          <td>${fmt(x.time)}${x.done ? '' : '…'}</td><td>${pct(x.seated)}</td><td>${x.aisle}</td><td>${x.seat}</td>
+        </tr>`).join('')}</tbody>`;
+  }
+
+  function renderLiveChart() {
+    const series = state.lanes.map((l) => {
+      const s = l.r.series.seated;
+      const step = Math.max(1, Math.ceil(s.length / 240));
+      const pts = [];
+      for (let i = 0; i < s.length; i += step) pts.push([i, (s[i] / l.r.n) * 100]);
+      pts.push([s.length - 1, 100]);
+      return { name: l.s.name, color: l.s.color, points: pts };
+    });
+    $('#liveChart').innerHTML = BS.lineChart({ series, xMax: state.tEnd, yMax: 100, height: 170, width: boxWidth('#liveChart', 320), xTime: true, xFmt: fmt, yFmt: (v) => v + '%', cursor: state.t, label: 'Passengers seated over time' });
+  }
+
+  function buildMarkers() {
+    const host = $('#scrubMarkers');
+    host.innerHTML = state.lanes.map((l) => `
+      <i style="left:${(l.finish / state.tEnd) * 100}%;background:${l.s.color}" title="${esc(l.s.name)} finished ${fmt(l.r.totalTime)}"></i>
+      <i class="half" style="left:${((l.r.firstEnter + l.r.t50) / state.tEnd) * 100}%;background:${l.s.color}" title="${esc(l.s.short)} 50% seated"></i>`).join('');
+  }
+
+  function buildEvents() {
+    const evs = [];
+    for (const l of state.lanes) for (const e of l.r.events) evs.push({ ...e, l });
+    evs.sort((a, b) => a.t - b.t);
+    $('#eventList').innerHTML = evs.map((e) => `
+      <li data-t="${e.t}"><span class="t">${fmt(e.t)}</span><i style="background:${e.l.s.color}"></i><span><b>${esc(e.l.s.short)}</b> · ${esc(e.text)}</span></li>`).join('') || '<li class="muted">No events</li>';
+    $$('#eventList li[data-t]').forEach((li) => li.addEventListener('click', () => { seek(parseFloat(li.dataset.t) + 0.01); }));
+  }
+
+  // ---------------------------------------------------------------- playback
+  let lastTs = 0;
+  function loop(ts) {
+    if (!state.playing) return;
+    const dt = lastTs ? Math.min(0.1, (ts - lastTs) / 1000) : 0;
+    lastTs = ts;
+    state.t = Math.min(state.tEnd, state.t + dt * state.speed);
+    renderFrame();
+    if (state.t >= state.tEnd) setPlaying(false);
+    else requestAnimationFrame(loop);
+  }
+  function setPlaying(p) {
+    if (p && state.t >= state.tEnd) state.t = 0;
+    state.playing = p;
+    $('#transport').classList.toggle('playing', p);
+    $('#playBtn').setAttribute('aria-label', p ? 'Pause' : 'Play');
+    lastTs = 0;
+    if (p) requestAnimationFrame(loop);
+    else if (state.lanes.length) renderFrame(true);
+  }
+  function seek(t) {
+    state.t = Math.max(0, Math.min(state.tEnd, t));
+    renderFrame(true);
+  }
+
+  function bindTransport() {
+    $('#playBtn').addEventListener('click', () => setPlaying(!state.playing));
+    $('#restartBtn').addEventListener('click', () => { seek(0); });
+    $$('#speedSeg button').forEach((b) => b.addEventListener('click', () => {
+      state.speed = parseFloat(b.dataset.v);
+      $$('#speedSeg button').forEach((x) => x.classList.toggle('on', x === b));
+    }));
+    const sc = $('#scrubber');
+    let dragging = false, resume = false;
+    const at = (e) => {
+      const r = sc.getBoundingClientRect();
+      seek(((e.clientX - r.left) / r.width) * state.tEnd);
+    };
+    sc.addEventListener('pointerdown', (e) => { dragging = true; resume = state.playing; if (resume) setPlaying(false); sc.setPointerCapture(e.pointerId); at(e); });
+    sc.addEventListener('pointermove', (e) => { if (dragging) at(e); });
+    sc.addEventListener('pointerup', () => { dragging = false; if (resume) setPlaying(true); });
+    sc.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); seek(state.t - 10); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); seek(state.t + 10); }
+    });
+    $$('#colorBySeg button').forEach((b) => b.addEventListener('click', () => {
+      state.colorBy = b.dataset.v;
+      $('#lanes').dataset.color = state.colorBy;
+      $$('#colorBySeg button').forEach((x) => x.classList.toggle('on', x === b));
+      renderFrame(true);
+    }));
+    $('#binsToggle').addEventListener('change', (e) => { state.bins = e.target.checked; renderFrame(true); });
+
+    document.addEventListener('keydown', (e) => {
+      if (state.view !== 'simulate') return;
+      if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+      if (e.key === ' ') { e.preventDefault(); setPlaying(!state.playing); }
+      else if (e.key === 'ArrowLeft' && document.activeElement !== sc) seek(state.t - (e.shiftKey ? 60 : 10));
+      else if (e.key === 'ArrowRight' && document.activeElement !== sc) seek(state.t + (e.shiftKey ? 60 : 10));
+      else if (e.key === 'Home') seek(0);
+      else if (e.key === 'End') seek(state.tEnd);
+    });
+
+    // relayout only when the width really changes, one frame later (avoids ResizeObserver feedback loops)
+    let lastW = 0, pending = false;
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.round(entries[0].contentRect.width);
+      if (w === lastW || pending) return;
+      pending = true;
+      requestAnimationFrame(() => {
+        pending = false;
+        lastW = Math.round($('#lanes').getBoundingClientRect().width);
+        for (const l of state.lanes) l.renderer.layout();
+        if (state.lanes.length) renderFrame(true);
+      });
+    });
+    ro.observe($('#lanes'));
+  }
+
+  // ---------------------------------------------------------------- analyze (Monte Carlo)
+  function updateMcStale() {
+    const fresh = state.mc && state.mc.key === scenarioKey();
+    $('#mcRunBtn').textContent = state.mc && !fresh ? 'Re-run (settings changed)' : 'Run analysis';
+  }
+
+  async function runMonteCarlo(ids, reps, onProgress) {
+    const ac = BS.getAircraft(state.acId);
+    const cfg = { ...state.cfg };
+    const strategies = ids.map((id) => BS.getStrategy(id));
+    const data = {};
+    const wins = {};
+    ids.forEach((id) => { data[id] = { time: [], aisle: [], seat: [], wait: [], gate: [], lim: [], paxT: [], p90Pax: [] }; wins[id] = 0; });
+    let lastYield = performance.now();
+    for (let i = 0; i < reps; i++) {
+      const seed = state.seed * 1009 + i * 7919 + 1;
+      const pax = BS.generatePassengers(ac, cfg, seed);
+      let best = Infinity, bestIds = [];
+      for (const s of strategies) {
+        const r = BS.runSim(ac, pax, s, cfg, seed);
+        const d = data[s.id];
+        d.time.push(r.totalTime); d.aisle.push(r.aisleInterf); d.seat.push(r.seatInterf); d.wait.push(r.avgAisleWait);
+        d.gate.push(r.gateChecked); d.lim.push(r.aisleLimited); d.paxT.push(r.avgPaxTime); d.p90Pax.push(r.p90PaxTime);
+        if (r.totalTime < best - 1e-9) { best = r.totalTime; bestIds = [s.id]; } else if (Math.abs(r.totalTime - best) < 1e-9) bestIds.push(s.id);
+        if (performance.now() - lastYield > 40) { onProgress && onProgress((i + 0.5) / reps); await tick(); lastYield = performance.now(); }
+      }
+      bestIds.forEach((id) => { wins[id] += 1 / bestIds.length; });
+      onProgress && onProgress((i + 1) / reps);
+    }
+    const mean = (a) => a.reduce((s, x) => s + x, 0) / a.length;
+    const out = { key: scenarioKey(), acId: state.acId, ids, reps, rows: {} };
+    for (const id of ids) {
+      const d = data[id];
+      out.rows[id] = {
+        id, s: BS.getStrategy(id), stats: BS.stats(d.time), times: d.time, win: wins[id] / reps,
+        aisle: mean(d.aisle), seat: mean(d.seat), wait: mean(d.wait), gate: mean(d.gate), lim: mean(d.lim),
+        paxT: mean(d.paxT), p90Pax: mean(d.p90Pax),
+      };
+    }
+    return out;
+  }
+
+  const setProgress = (f) => { $('#mcProgress div').style.width = f >= 1 ? '0%' : f * 100 + '%'; };
+
+  async function runAnalysis() {
+    if (state.mcRunning) return;
+    state.mcRunning = true;
+    const btn = $('#mcRunBtn');
+    btn.disabled = true;
+    const ids = state.mcScope === 'all' ? BS.STRATEGIES.map((s) => s.id) : state.strategies.slice();
+    const t0 = performance.now();
+    try {
+      btn.textContent = 'Running… 0%';
+      state.mc = await runMonteCarlo(ids, state.mcReps, (f) => { setProgress(f); btn.textContent = `Running… ${Math.round(f * 100)}%`; });
+      state.mc.ms = performance.now() - t0;
+      renderMC();
+    } finally {
+      state.mcRunning = false;
+      btn.disabled = false;
+      setProgress(1);
+      updateMcStale();
+    }
+  }
+
+  function renderMC() {
+    const mc = state.mc;
+    if (!mc) return;
+    $('#mcEmpty').hidden = true;
+    $('#mcResults').hidden = false;
+    const rows = Object.values(mc.rows).sort((a, b) => a.stats.p50 - b.stats.p50);
+    const best = rows[0];
+    const base = mc.rows.random || rows[rows.length - 1];
+    const worst = rows[rows.length - 1];
+    const saved = base.stats.p50 - best.stats.p50;
+    const lim = best.lim;
+    $('#mcKpis').innerHTML = `
+      <div class="kpi"><div class="k-label"><i class="sw" style="background:${best.s.color}"></i>Fastest (median)</div>
+        <div class="k-value">${esc(best.s.name)}</div><div class="k-foot"><span class="badge good">${fmt(best.stats.p50)}</span> wins ${pct(best.win)} of runs</div></div>
+      <div class="kpi"><div class="k-label">vs ${esc(base.s.name)}</div>
+        <div class="k-value">${saved >= 0 ? '−' : '+'}${fmt(Math.abs(saved))}</div><div class="k-foot"><span class="badge ${saved >= 0 ? 'good' : 'bad'}">${saved >= 0 ? '−' : '+'}${Math.abs((saved / base.stats.p50) * 100).toFixed(0)}%</span> median boarding time</div></div>
+      <div class="kpi"><div class="k-label">Spread: best vs worst</div>
+        <div class="k-value">${fmt(worst.stats.p50 - best.stats.p50)}</div><div class="k-foot">${esc(worst.s.short)} median ${fmt(worst.stats.p50)}</div></div>
+      <div class="kpi"><div class="k-label">Bottleneck</div>
+        <div class="k-value">${lim > 0.3 ? 'Aisle' : 'Door flow'}</div><div class="k-foot"><span class="badge ${lim > 0.3 ? 'accent' : 'warn'}">${pct(lim)}</span> of the time the door waited on the aisle</div></div>`;
+    $('#mcBox').innerHTML = BS.boxPlot({ rows: rows.map((r) => ({ name: r.s.name, color: r.s.color, stats: r.stats })), width: boxWidth('#mcBox', 900) });
+    $('#mcTable').innerHTML = `
+      <thead><tr><th>Method</th><th>Median</th><th>Mean</th><th>p90</th><th>± SD</th><th>Δ vs ${esc(base.s.short)}</th><th>Win %</th><th title="Aisle interferences per flight">Aisle blocks</th><th title="Neighbours standing up per flight">Seat shuffles</th><th title="Average time a passenger stands blocked in the aisle">Aisle wait / pax</th><th title="Average time from entering the door to seated">Door→seat / pax</th><th>Gate-checked bags</th></tr></thead>
+      <tbody>${rows.map((r, i) => {
+        const d = r.stats.p50 - base.stats.p50;
+        return `<tr class="${i === 0 ? 'best' : ''}">
+          <td><span class="nm"><i style="background:${r.s.color}"></i>${esc(r.s.name)}</span></td>
+          <td>${fmt(r.stats.p50)}</td><td>${fmt(r.stats.mean)}</td><td>${fmt(r.stats.p90)}</td><td>${Math.round(r.stats.sd)} s</td>
+          <td class="${d < -0.5 ? 'delta-good' : d > 0.5 ? 'delta-bad' : ''}">${r === base ? '—' : (d < 0 ? '−' : '+') + fmt(Math.abs(d))}</td>
+          <td>${pct(r.win)}</td><td>${r.aisle.toFixed(0)}</td><td>${r.seat.toFixed(0)}</td><td>${r.wait.toFixed(0)} s</td><td>${fmt(r.paxT)}</td><td>${r.gate.toFixed(1)}</td></tr>`;
+      }).join('')}</tbody>`;
+  }
+
+  function downloadCsv() {
+    const mc = state.mc;
+    if (!mc) return;
+    const head = ['method', 'runs', 'median_s', 'mean_s', 'p10_s', 'p90_s', 'sd_s', 'win_rate', 'aisle_interferences', 'seat_interferences', 'aisle_wait_per_pax_s', 'door_to_seat_per_pax_s', 'gate_checked_bags', 'aisle_limited_share'];
+    const lines = [head.join(',')];
+    for (const r of Object.values(mc.rows)) {
+      lines.push([r.s.name, mc.reps, r.stats.p50.toFixed(1), r.stats.mean.toFixed(1), r.stats.p10.toFixed(1), r.stats.p90.toFixed(1), r.stats.sd.toFixed(1), r.win.toFixed(3), r.aisle.toFixed(1), r.seat.toFixed(1), r.wait.toFixed(1), r.paxT.toFixed(1), r.gate.toFixed(2), r.lim.toFixed(3)].map((v) => `"${v}"`).join(','));
+    }
+    const meta = `# Boarding Lab export · aircraft=${state.acId} · seed=${state.seed} · cfg=${JSON.stringify(state.cfg).replace(/"/g, "'")}`;
+    const blob = new Blob([meta + '\n' + lines.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `boarding-lab-${state.acId}-${state.seed}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  const SWEEPS = {
+    carryOnShare: { values: [0, 0.2, 0.4, 0.6, 0.8, 1], fmt: pct, label: 'Roller-bag share' },
+    loadFactor: { values: [0.5, 0.6, 0.7, 0.8, 0.9, 1], fmt: pct, label: 'Load factor' },
+    compliance: { values: [0.5, 0.6, 0.7, 0.8, 0.9, 1], fmt: pct, label: 'Group discipline' },
+    partyShare: { values: [0, 0.2, 0.4, 0.6, 0.8], fmt: pct, label: 'Travel parties' },
+    headway: { values: [1.5, 2, 2.5, 3, 4, 5], fmt: (v) => v + ' s', label: 'Door flow' },
+    binCapacity: { values: [0.4, 0.5, 0.6, 0.7, 0.8, 1.0], fmt: (v) => v.toFixed(1), label: 'Bin space per seat' },
+  };
+
+  async function runSensitivity() {
+    const key = $('#sensParam').value;
+    const sw = SWEEPS[key];
+    const btn = $('#sensRunBtn');
+    btn.disabled = true;
+    const ac = BS.getAircraft(state.acId);
+    const reps = 12;
+    const series = state.strategies.map((id) => ({ s: BS.getStrategy(id), points: [] }));
+    const total = sw.values.length * reps;
+    let done = 0;
+    for (const v of sw.values) {
+      const cfg = { ...state.cfg, [key]: v };
+      const sums = series.map(() => 0);
+      for (let i = 0; i < reps; i++) {
+        const seed = state.seed * 131 + i * 7919 + 3;
+        const pax = BS.generatePassengers(ac, cfg, seed);
+        series.forEach((se, j) => { sums[j] += BS.runSim(ac, pax, se.s, cfg, seed).totalTime; });
+        done++;
+        btn.textContent = `Running… ${Math.round((done / total) * 100)}%`;
+        await tick();
+      }
+      series.forEach((se, j) => se.points.push([v, sums[j] / reps]));
+    }
+    state.sens = { series, sw, key, reps };
+    renderSens();
+    btn.disabled = false;
+    btn.textContent = 'Run sweep';
+  }
+
+  function renderSens() {
+    if (!state.sens) return;
+    const { series, sw, key, reps } = state.sens;
+    const all = series.flatMap((s) => s.points.map((p) => p[1]));
+    $('#sensChart').innerHTML = BS.lineChart({
+      series: series.map((s) => ({ name: s.s.name, color: s.s.color, points: s.points })),
+      xMin: sw.values[0], xMax: sw.values[sw.values.length - 1], yMin: Math.max(0, Math.min(...all) * 0.9), yMax: Math.max(...all) * 1.05,
+      xFmt: sw.fmt, yFmt: fmt, dots: true, cursor: state.cfg[key], width: boxWidth('#sensChart', 900), height: 260, label: 'Sensitivity',
+    }) + `<div class="legend">${series.map((s) => `<span><i class="lg" style="background:${s.s.color}"></i>${esc(s.s.name)}</span>`).join('')}<span class="muted">Dashed line = current setting · ${reps} runs per point</span></div>`;
+  }
+
+  /** Current inner width of a chart container (charts are drawn 1:1 so text never scales). */
+  function boxWidth(sel, fallback) {
+    const el = $(sel);
+    const w = el && el.clientWidth;
+    return w && w > 50 ? Math.floor(w) : fallback;
+  }
+
+  // ---------------------------------------------------------------- risk
+  /** Editable catalogue: values shown are the chosen level's defaults unless the user overrode them. */
+  function renderRiskTable() {
+    const level = state.riskLevel;
+    const edits = state.cfg.riskEdits || {};
+    const occ = state.risk && state.risk.key === riskKey() ? state.risk.perFlight : null;
+    $('#riskTable').innerHTML = `
+      <thead><tr><th>Event</th><th>Applies</th><th>Probability</th><th>Typical duration</th><th title="Average occurrences per flight in the last run">Per flight</th></tr></thead>
+      <tbody>${BS.RISK_EVENTS.map((e) => {
+        const ed = edits[e.id] || {};
+        const on = ed.on !== undefined ? ed.on : true;
+        const p = ed.p != null ? ed.p : e.p[level];
+        const mean = ed.mean != null ? ed.mean : e.mean;
+        const minutes = mean >= 120;
+        return `<tr class="${on ? '' : 'off'}" data-id="${e.id}">
+          <td><div class="ev-row"><input type="checkbox" data-k="on" ${on ? 'checked' : ''} aria-label="Enable ${esc(e.label)}"/>
+            <div class="ev"><b>${esc(e.label)}</b><small>${esc(e.desc)}</small></div></div></td>
+          <td><span class="scope">${e.scope === 'pax' ? 'per passenger' : 'per flight'}</span></td>
+          <td><span class="num-in"><input type="number" data-k="p" min="0" max="100" step="${e.scope === 'pax' ? 0.1 : 1}" value="${+(p * 100).toFixed(2)}"/><span>%</span></span></td>
+          <td><span class="num-in"><input type="number" data-k="mean" data-unit="${minutes ? 60 : 1}" min="0" step="${minutes ? 0.5 : 1}" value="${minutes ? +(mean / 60).toFixed(1) : Math.round(mean)}"/><span>${minutes ? 'min' : 's'}</span></span>
+            ${e.count ? `<br><span class="muted sm">${e.count[level][0]}–${e.count[level][1]} passengers</span>` : ''}</td>
+          <td>${occ ? (occ[e.id] || 0).toFixed(2) : '–'}</td>
+        </tr>`;
+      }).join('')}</tbody>`;
+    $$('#riskTable input').forEach((inp) => inp.addEventListener('change', () => {
+      const id = inp.closest('tr').dataset.id;
+      const edits2 = { ...(state.cfg.riskEdits || {}) };
+      const cur = { ...(edits2[id] || {}) };
+      if (inp.dataset.k === 'on') cur.on = inp.checked;
+      else if (inp.dataset.k === 'p') cur.p = Math.max(0, Math.min(100, parseFloat(inp.value) || 0)) / 100;
+      else cur.mean = Math.max(0, parseFloat(inp.value) || 0) * (+inp.dataset.unit || 1);
+      edits2[id] = cur;
+      state.cfg.riskEdits = edits2;
+      renderRiskTable();
+      if (state.cfg.risk && state.cfg.risk !== 'off') rebuildSoon();
+      else writeHash();
+    }));
+  }
+
+  const riskKey = () => JSON.stringify([state.acId, state.cfg, state.seed, state.strategies, state.riskLevel]);
+
+  async function runRisk() {
+    const btn = $('#riskRunBtn');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const ac = BS.getAircraft(state.acId);
+      const level = state.riskLevel;
+      const clean = { ...state.cfg, risk: 'off' };
+      const dirty = { ...state.cfg, risk: level };
+      const ids = state.strategies.slice();
+      const reps = state.riskReps;
+      const profile = BS.riskProfile(dirty);
+      const attReps = Math.min(reps, 30);
+      const total = reps * ids.length * 2 + profile.length * attReps;
+      let done = 0, lastYield = performance.now();
+      const step = async () => {
+        done++;
+        if (performance.now() - lastYield > 40) {
+          const f = done / total;
+          $('#riskProgress div').style.width = f * 100 + '%';
+          btn.textContent = `Running… ${Math.round(f * 100)}%`;
+          await tick();
+          lastYield = performance.now();
+        }
+      };
+      const data = Object.fromEntries(ids.map((id) => [id, { clean: [], dirty: [], cleanReady: [], dirtyReady: [] }]));
+      const counts = {};
+      const seeds = [];
+      for (let i = 0; i < reps; i++) {
+        const seed = state.seed * 7717 + i * 7919 + 9;
+        seeds.push(seed);
+        const pax = BS.generatePassengers(ac, clean, seed);
+        for (const id of ids) {
+          const s = BS.getStrategy(id);
+          const r0 = BS.runSim(ac, pax, s, clean, seed); await step();
+          const r1 = BS.runSim(ac, pax, s, dirty, seed); await step();
+          const d = data[id];
+          d.clean.push(r0.totalTime); d.dirty.push(r1.totalTime);
+          d.cleanReady.push(r0.readyTime); d.dirtyReady.push(r1.readyTime);
+          if (id === ids[0]) for (const [k, v] of Object.entries(r1.disruptions)) counts[k] = (counts[k] || 0) + v;
+        }
+      }
+      // marginal impact of each event on the focus method (paired with the clean runs)
+      const focus = BS.getStrategy(ids[0]);
+      const impact = [];
+      for (const e of profile) {
+        let sum = 0;
+        for (let i = 0; i < attReps; i++) {
+          const seed = seeds[i];
+          const pax = BS.generatePassengers(ac, clean, seed);
+          const r = BS.runSim(ac, pax, focus, dirty, seed, { riskOnly: e.id });
+          sum += e.afterBoarding ? r.readyTime - data[focus.id].cleanReady[i] : r.totalTime - data[focus.id].clean[i];
+          await step();
+        }
+        impact.push({ id: e.id, label: e.label, value: sum / attReps, after: !!e.afterBoarding });
+      }
+      const perFlight = Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, v / reps]));
+      state.risk = { key: riskKey(), level, reps, ids, data, impact, perFlight, focusId: focus.id };
+      renderRiskTable();
+      renderRisk();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Run risk analysis';
+      $('#riskProgress div').style.width = '0%';
+    }
+  }
+
+  function renderRisk() {
+    const R = state.risk;
+    if (!R) return;
+    $('#riskEmpty').hidden = true;
+    $('#riskResults').hidden = false;
+    const target = (+$('#planTarget').value || 15) * 60;
+    const over = (arr) => arr.filter((x) => x > target).length / arr.length;
+    const rows = R.ids.map((id) => {
+      const d = R.data[id];
+      const c = BS.stats(d.clean), x = BS.stats(d.dirty), rd = BS.stats(d.dirtyReady);
+      return { s: BS.getStrategy(id), c, x, rd, dP50: x.p50 - c.p50, dP90: x.p90 - c.p90, overC: over(d.clean), overX: over(d.dirty) };
+    });
+    const focus = rows[0];
+    const robust = rows.slice().sort((a, b) => a.x.p90 - b.x.p90)[0];
+    const stale = R.key !== riskKey();
+    $('#riskKpis').innerHTML = `
+      <div class="kpi"><div class="k-label"><i class="sw" style="background:${focus.s.color}"></i>${esc(focus.s.short)}: median impact</div>
+        <div class="k-value">+${fmt(focus.dP50)}</div><div class="k-foot">${fmt(focus.c.p50)} clean → ${fmt(focus.x.p50)} (${esc(BS.RISK_LEVELS[R.level].toLowerCase())})</div></div>
+      <div class="kpi"><div class="k-label">Buffer to plan (p90)</div>
+        <div class="k-value">+${fmt(focus.dP90)}</div><div class="k-foot">p90 ${fmt(focus.c.p90)} → <span class="badge bad">${fmt(focus.x.p90)}</span></div></div>
+      <div class="kpi"><div class="k-label">Flights over ${fmt(target)} target</div>
+        <div class="k-value">${pct(focus.overX)}</div><div class="k-foot">clean: ${pct(focus.overC)} · target set in Plan</div></div>
+      <div class="kpi"><div class="k-label">Most robust (lowest disrupted p90)</div>
+        <div class="k-value">${esc(robust.s.short)}</div><div class="k-foot"><span class="badge good">${fmt(robust.x.p90)}</span> p90 on a ${esc(BS.RISK_LEVELS[R.level].toLowerCase())}</div></div>
+      ${stale ? '<p class="hint" style="grid-column:1/-1">Settings changed since this run. Run it again to update.</p>' : ''}`;
+    const boxRows = [];
+    for (const r of rows) {
+      boxRows.push({ name: `${r.s.short} · clean`, color: '#98A2B3', stats: r.c });
+      boxRows.push({ name: `${r.s.short} · disrupted`, color: r.s.color, stats: r.x });
+    }
+    $('#riskBox').innerHTML = BS.boxPlot({ rows: boxRows, width: boxWidth('#riskBox', 900), target });
+    $('#riskFocusLabel').textContent = `for ${focus.s.name} · ${Math.min(R.reps, 30)} runs each`;
+    const imp = R.impact.slice().sort((a, b) => b.value - a.value);
+    $('#riskTornado').innerHTML = imp.length
+      ? BS.barChart({ rows: imp.map((e) => ({ name: e.label, color: e.after ? '#F59E0B' : '#DC2626', value: Math.max(0, e.value) })), fmt: (v) => '+' + fmt(v), width: boxWidth('#riskTornado', 420), label: 'Delay by event' })
+      : '<div class="placeholder">All events are switched off.</div>';
+    $('#riskMethodTable').innerHTML = `
+      <thead><tr><th>Method</th><th>p50 clean → disrupted</th><th>Δ p90</th><th title="Boarding plus offload: ready to close the doors">Door-close p90</th><th>Over target</th></tr></thead>
+      <tbody>${rows.slice().sort((a, b) => a.x.p90 - b.x.p90).map((r, i) => `
+        <tr class="${i === 0 ? 'best' : ''}"><td><span class="nm"><i style="background:${r.s.color}"></i>${esc(r.s.short)}</span></td>
+          <td>${fmt(r.c.p50)} → ${fmt(r.x.p50)}</td><td class="delta-bad">+${fmt(r.dP90)}</td><td>${fmt(r.rd.p90)}</td><td>${pct(r.overC)} → ${pct(r.overX)}</td></tr>`).join('')}</tbody>`;
+  }
+
+  // ---------------------------------------------------------------- plan
+  function fillPlanSelects() {
+    const opts = BS.STRATEGIES.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    $('#planBase').innerHTML = opts;
+    $('#planCand').innerHTML = opts;
+    $('#planBase').value = 'airline-fare';
+    $('#planCand').value = 'wilma';
+    ['#planBase', '#planCand', '#planCost', '#planDeps', '#planDays', '#planTarget', '#planStd', '#planDoorBuf', '#planLead'].forEach((s) => $(s).addEventListener('change', () => { if (state.plan && state.plan.key === scenarioKey()) renderPlan(); }));
+  }
+
+  async function runPlan() {
+    const btn = $('#planRunBtn');
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      if (!state.mc || state.mc.key !== scenarioKey() || state.mc.ids.length < BS.STRATEGIES.length) {
+        state.mcScope = 'all';
+        $$('#mcScopeSeg button').forEach((x) => x.classList.toggle('on', x.dataset.v === 'all'));
+        btn.textContent = 'Simulating…';
+        state.mc = await runMonteCarlo(BS.STRATEGIES.map((s) => s.id), Math.max(30, state.mcReps), (f) => { btn.textContent = `Simulating… ${Math.round(f * 70)}%`; });
+        renderMC();
+        updateMcStale();
+      }
+      // levers: what-if runs on the proposed method
+      const ac = BS.getAircraft(state.acId);
+      const cand = BS.getStrategy($('#planCand').value);
+      const cur = state.cfg;
+      const activeDoors = cur.doors || ac.doors.filter((d) => d.default).map((d) => d.id);
+      const levers = [];
+      if (ac.doors.length > activeDoors.length) levers.push({ name: 'Open every door', sub: `${ac.doors.map((d) => d.id).join(' + ')} (e.g. stairs at the rear)`, cfg: { doors: ac.doors.map((d) => d.id) } });
+      if (cur.carryOnShare >= 0.2) levers.push({ name: '20 pts fewer roller bags', sub: 'Paid carry-on, free gate check, bag sizers', cfg: { carryOnShare: cur.carryOnShare - 0.2 } });
+      levers.push({ name: 'Bigger bins (+0.2 bags/seat)', sub: 'Cabin retrofit (e.g. larger “XL” overhead bins)', cfg: { binCapacity: cur.binCapacity + 0.2 } });
+      if (cur.compliance < 1) levers.push({ name: 'Enforce group calls', sub: 'Everyone boards with their own group', cfg: { compliance: 1 } });
+      if (cur.headway > 1.6) levers.push({ name: 'Faster door flow (−0.5 s/pax)', sub: 'More scanners, open the gate earlier, pre-staged queue', cfg: { headway: Math.max(1, cur.headway - 0.5) } });
+      if (cur.partyShare > 0.1) levers.push({ name: 'Parties board separately', sub: 'Travel parties split up like other passengers (policy test)', cfg: { partyShare: 0 } });
+      const reps = 16;
+      const run = async (over) => {
+        const cfg = { ...cur, ...over };
+        let s = 0, g = 0;
+        for (let i = 0; i < reps; i++) {
+          const seed = state.seed * 17 + i * 7919 + 5;
+          const r = BS.runSim(ac, BS.generatePassengers(ac, cfg, seed), cand, cfg, seed);
+          s += r.totalTime; g += r.gateChecked;
+          if (i % 4 === 3) await tick();
+        }
+        return { mean: s / reps, gate: g / reps };
+      };
+      btn.textContent = 'Testing levers…';
+      const baseRun = await run({});
+      const baseMean = baseRun.mean;
+      for (let i = 0; i < levers.length; i++) {
+        const r = await run(levers[i].cfg);
+        levers[i].mean = r.mean;
+        levers[i].delta = r.mean - baseMean;
+        levers[i].gateDelta = r.gate - baseRun.gate;
+        btn.textContent = `Testing levers… ${Math.round(((i + 1) / levers.length) * 100)}%`;
+      }
+      levers.sort((a, b) => a.delta - b.delta);
+      state.plan = { key: scenarioKey(), levers, baseMean, candId: cand.id };
+      renderPlan();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Update estimates';
+    }
+  }
+
+  function renderPlan() {
+    const mc = state.mc;
+    if (!mc || !state.plan) return;
+    const base = mc.rows[$('#planBase').value];
+    const cand = mc.rows[$('#planCand').value];
+    const cost = +$('#planCost').value || 0, deps = +$('#planDeps').value || 0, days = +$('#planDays').value || 0;
+    const target = (+$('#planTarget').value || 15) * 60;
+    const [hh, mm] = ($('#planStd').value || '10:00').split(':').map(Number);
+    const std = hh * 60 + mm;
+    const doorBuf = +$('#planDoorBuf').value || 0;
+    const lead = +$('#planLead').value || 0;
+
+    const dMed = base.stats.p50 - cand.stats.p50;
+    const dP90 = base.stats.p90 - cand.stats.p90;
+    const annualMin = (dMed / 60) * deps * days;
+    const annualVal = annualMin * cost;
+    const within = (r) => r.times.filter((x) => x <= target).length / r.times.length;
+    const clock = (m) => { m = ((Math.round(m) % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+    const callAt = (r) => std - doorBuf - r.stats.p90 / 60 - lead;
+    const money = (v) => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : Math.abs(v) >= 1e3 ? `$${Math.round(v / 1e3)}k` : `$${Math.round(v)}`);
+
+    const earliest = Math.min(callAt(base), callAt(cand));
+    const span = std - earliest + 2;
+    const seg = (from, to, color, label) => `<div class="tl-seg" style="left:${((from - earliest + 1) / span) * 100}%;width:${((to - from) / span) * 100}%;background:${color}" title="${esc(label)}">${esc(label)}</div>`;
+    const tlRow = (r, label) => {
+      const call = callAt(r);
+      const on = call + lead, done = on + r.stats.p90 / 60;
+      return `<div class="tl-row"><div><b>${esc(label)}</b><br><span class="muted">${esc(r.s.name)}</span></div><div class="tl-bar">
+        ${seg(call, on, '#98A2B3', 'Gate')}${seg(on, done, r.s.color, `Boarding p90 ${fmt(r.stats.p90)}`)}${seg(done, std, '#475467', 'Doors')}</div></div>`;
+    };
+
+    const lim = cand.lim;
+    const bottleneck = lim > 0.3
+      ? { cls: 'info', title: 'Aisle-limited: the boarding method and bag policy matter most', text: `Passengers were ready at the door but the aisle was backed up ${pct(lim)} of the time. Methods that spread passengers along the cabin, and fewer or smaller cabin bags, cut the most time.` }
+      : { cls: 'warn', title: 'Door-limited: the gate and the door are the constraint', text: `The aisle kept up with the door most of the time (backed up only ${pct(lim)} of the time), so passengers arrive more slowly than the cabin can absorb them. Another door or faster gate processing will help more than a new method.` };
+
+    const targetRows = Object.values(mc.rows).map((r) => ({ name: r.s.short, color: r.s.color, value: within(r) })).sort((a, b) => b.value - a.value);
+
+    $('#planOut').innerHTML = `
+      <div class="kpis plan-kpis">
+        <div class="kpi"><div class="k-label">Saved per departure</div><div class="k-value">${dMed >= 0 ? '' : '+'}${fmt(Math.abs(dMed))}</div>
+          <div class="k-foot"><span class="badge ${dMed >= 0 ? 'good' : 'bad'}">${dMed >= 0 ? 'faster' : 'slower'}</span> median · p90 ${dP90 >= 0 ? '−' : '+'}${fmt(Math.abs(dP90))}</div></div>
+        <div class="kpi"><div class="k-label">Yearly value</div><div class="k-value">${money(annualVal)}</div>
+          <div class="k-foot">${Math.round(annualMin / 60).toLocaleString()} gate hours · ${deps}/day × ${days} days</div></div>
+        <div class="kpi"><div class="k-label">Within ${fmt(target)} target</div><div class="k-value">${pct(within(cand))}</div>
+          <div class="k-foot">of flights with ${esc(cand.s.short)} · ${esc(base.s.short)}: ${pct(within(base))}</div></div>
+      </div>
+      <div class="callout ${bottleneck.cls}"><div class="ico"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
+        <div><h4>${esc(bottleneck.title)}</h4><p>${esc(bottleneck.text)}</p></div></div>
+      <div class="card">
+        <div class="card-head"><h3>When to call boarding</h3><span class="muted sm">based on p90, so 9 in 10 flights have doors closed on time</span></div>
+        <div class="timeline-plan">
+          ${tlRow(base, `Call ${clock(callAt(base))}`)}
+          ${tlRow(cand, `Call ${clock(callAt(cand))}`)}
+          <div class="tl-axis"><span>${clock(earliest - 1)}</span><span>STD ${clock(std)}</span></div>
+        </div>
+        <p class="hint">With ${esc(cand.s.name)} you can call boarding <b>${Math.round(callAt(cand) - callAt(base))} min ${callAt(cand) >= callAt(base) ? 'later' : 'earlier'}</b> than with ${esc(base.s.name)} and keep the same on-time reliability. That is less time passengers spend standing in the jet bridge.</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h3>What else helps (${esc(BS.getStrategy(state.plan.candId).short)})</h3><span class="muted sm">mean of 16 runs each</span></div>
+          <div class="levers">${state.plan.levers.map((l) => `
+            <div class="lever"><div><b>${esc(l.name)}</b><small>${esc(l.sub)}${Math.abs(l.gateDelta) >= 1 ? ` · <span class="${l.gateDelta < 0 ? '' : 'warn-text'}">${l.gateDelta > 0 ? '+' : '−'}${Math.round(Math.abs(l.gateDelta))} gate-checked bags</span>` : ''}</small></div>
+              <span class="d ${l.delta < -2 ? 'delta-good' : l.delta > 2 ? 'delta-bad' : 'muted'}">${Math.abs(l.delta) <= 2 ? '±0:00' : (l.delta < 0 ? '−' : '+') + fmt(Math.abs(l.delta))}</span></div>`).join('')}</div>
+          <p class="hint">A lever can add cabin time and still be worth it. Bigger bins, for example, mean fewer bags gate-checked (less ramp handling and waiting at the carousel) in exchange for more stowing on board. Differences within ±2 s are noise.</p>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Share of flights within target</h3><span class="muted sm">${mc.reps} runs per method</span></div>
+          <div id="planBars" class="chart-box"></div>
+        </div>
+      </div>
+      ${!state.cfg.risk || state.cfg.risk === 'off'
+        ? '<p class="hint"><b>Disruptions are off</b>, so these times assume a clean boarding. Set <i>Disruptions</i> to Realistic in the sidebar and update the estimates to add a risk buffer. The Risk tab shows what drives it.</p>'
+        : `<p class="hint">Includes disruptions (${esc(BS.RISK_LEVELS[state.cfg.risk].toLowerCase())}): boarding pauses, late passengers and incidents are part of every run above.</p>`}
+      <p class="hint">These are planning estimates from the simulation model, not a guarantee. Before committing to a change, calibrate the behaviour settings against your own boarding timestamps.</p>`;
+    $('#planBars').innerHTML = BS.barChart({ rows: targetRows, fmt: pct, width: boxWidth('#planBars', 420), label: 'Within target' });
+  }
+
+  // ---------------------------------------------------------------- methods
+  function buildMethods() {
+    const ac = BS.getAircraft(state.acId);
+    const grid = $('#methodsGrid');
+    grid.innerHTML = BS.STRATEGIES.map((s) => `
+      <article class="method">
+        <div class="method-top"><span class="sw" style="background:${s.color}"></span><h3>${esc(s.name)}</h3>
+          <span class="dots" title="Practicality ${s.practicality}/5">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= s.practicality ? 'on' : ''}"></i>`).join('')}</span></div>
+        <p class="tagline">${esc(s.tagline)}</p>
+        <div class="pattern"><canvas data-id="${s.id}"></canvas></div>
+        <p class="desc">${esc(s.desc)}</p>
+        ${s.groupCalls ? `<ol class="calls"><li>Pre-boarding: assistance, families</li>${s.groupCalls.map(([, l]) => `<li>${esc(l)}</li>`).join('')}</ol>` : ''}
+        <div class="pc"><div><b>Pros</b><ul>${s.pros.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div><div><b>Cons</b><ul>${s.cons.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div></div>
+        <div class="method-foot"><span>${esc(s.usedBy)}<br>${esc(s.source)}</span>
+          <button class="btn sm ${state.strategies.includes(s.id) ? '' : 'primary'}" data-add="${s.id}">${state.strategies.includes(s.id) ? 'In comparison' : 'Compare'}</button></div>
+      </article>`).join('');
+    requestAnimationFrame(() => {
+      $$('#methodsGrid canvas').forEach((c) => BS.drawPattern(c, ac, BS.getStrategy(c.dataset.id), state.cfg));
+    });
+    $$('#methodsGrid [data-add]').forEach((b) => b.addEventListener('click', () => {
+      const id = b.dataset.add;
+      if (!state.strategies.includes(id)) {
+        if (state.strategies.length >= MAX_LANES) state.strategies.pop();
+        state.strategies.push(id);
+        syncStrategies();
+        rebuild();
+      }
+      switchView('simulate');
+    }));
+  }
+
+  // ---------------------------------------------------------------- views, misc
+  function switchView(v) {
+    state.view = v;
+    $$('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
+    $$('.view').forEach((s) => s.classList.toggle('active', s.id === 'view-' + v));
+    if (v !== 'simulate') setPlaying(false);
+    if (v === 'methods') buildMethods();
+    if (v === 'analyze') { renderMC(); renderSens(); }
+    if (v === 'risk') { renderRiskTable(); renderRisk(); }
+    if (v === 'simulate') { for (const l of state.lanes) l.renderer.layout(); renderFrame(true); }
+    if (v === 'plan' && state.plan && state.plan.key === scenarioKey()) renderPlan();
+    $('#app').classList.remove('side-open');
+    $('#main').scrollTop = 0;
+    writeHash();
+  }
+
+  let toastTimer;
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  function setTheme(th) {
+    document.documentElement.dataset.theme = th;
+    try { localStorage.setItem('boarding-lab-theme', th); } catch (e) { /* storage unavailable */ }
+    for (const l of state.lanes) l.renderer.readTheme();
+    if (state.lanes.length) renderFrame(true);
+    if (state.view === 'methods') buildMethods();
+  }
+
+  function bindChrome() {
+    $$('#tabs button').forEach((b) => b.addEventListener('click', () => switchView(b.dataset.view)));
+    $$('[data-goto]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); switchView(a.dataset.goto); }));
+    $('#themeBtn').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+    $('#menuBtn').addEventListener('click', () => $('#app').classList.toggle('side-open'));
+    $('#scrim').addEventListener('click', () => $('#app').classList.remove('side-open'));
+    $('#mcRunBtn').addEventListener('click', runAnalysis);
+    $$('[data-action="mc"]').forEach((b) => b.addEventListener('click', runAnalysis));
+    $$('#mcScopeSeg button').forEach((b) => b.addEventListener('click', () => { state.mcScope = b.dataset.v; $$('#mcScopeSeg button').forEach((x) => x.classList.toggle('on', x === b)); }));
+    $$('#mcRepsSeg button').forEach((b) => b.addEventListener('click', () => { state.mcReps = +b.dataset.v; $$('#mcRepsSeg button').forEach((x) => x.classList.toggle('on', x === b)); }));
+    $('#csvBtn').addEventListener('click', downloadCsv);
+    $('#sensRunBtn').addEventListener('click', runSensitivity);
+    $('#planRunBtn').addEventListener('click', runPlan);
+    $('#riskRunBtn').addEventListener('click', runRisk);
+    $$('[data-action="risk"]').forEach((b) => b.addEventListener('click', runRisk));
+    $$('#riskLevelSeg button').forEach((b) => b.addEventListener('click', () => {
+      state.riskLevel = b.dataset.v;
+      $$('#riskLevelSeg button').forEach((x) => x.classList.toggle('on', x === b));
+      renderRiskTable();
+    }));
+    $$('#riskRepsSeg button').forEach((b) => b.addEventListener('click', () => { state.riskReps = +b.dataset.v; $$('#riskRepsSeg button').forEach((x) => x.classList.toggle('on', x === b)); }));
+    $('#riskResetBtn').addEventListener('click', () => { state.cfg.riskEdits = null; renderRiskTable(); rebuildSoon(0); });
+
+    // charts are drawn at their real pixel width, so redraw them when the panel changes size
+    let rt, lastMainW = 0;
+    new ResizeObserver((entries) => {
+      const w = Math.round(entries[0].contentRect.width);
+      if (w === lastMainW) return;
+      lastMainW = w;
+      clearTimeout(rt);
+      rt = setTimeout(() => {
+        if (state.view === 'analyze') { renderMC(); renderSens(); }
+        else if (state.view === 'risk') renderRisk();
+        else if (state.view === 'plan' && state.plan && state.plan.key === scenarioKey()) renderPlan();
+        else if (state.view === 'simulate' && state.lanes.length) renderLiveChart();
+      }, 150);
+    }).observe($('#main'));
+  }
+
+  // ---------------------------------------------------------------- boot
+  window.addEventListener('error', (e) => console.error('[BoardingLab] error:', e.message, e.filename + ':' + e.lineno));
+  window.addEventListener('unhandledrejection', (e) => console.error('[BoardingLab] rejection:', e.reason && (e.reason.stack || e.reason)));
+
+  function boot() {
+    let th = null;
+    try { th = localStorage.getItem('boarding-lab-theme'); } catch (e) { /* ignore */ }
+    if (!th && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) th = 'dark';
+    document.documentElement.dataset.theme = th || 'light';
+    readHash();
+    buildSidebar();
+    syncSidebar();
+    fillPlanSelects();
+    bindTransport();
+    bindChrome();
+    rebuild();
+    if (state.view !== 'simulate') switchView(state.view);
+    BS.app = { state, rebuild, seek, setPlaying, runAnalysis, runPlan, switchView }; // handy for debugging / embedding
+    console.info('[BoardingLab] ready', state.acId, state.strategies.join(','), state.results.map((x) => `${x.s.short}=${fmt(x.r.totalTime)}`).join(' '));
+    if (window.BL_SELFTEST || /selftest/.test(location.search + location.hash)) selfTest();
+  }
+
+  // Exercise every view once and log the outcome (used for automated checks: add #selftest to the URL)
+  async function selfTest() {
+    try {
+      seek(state.tEnd / 2); setPlaying(true); await new Promise((r) => setTimeout(r, 300)); setPlaying(false);
+      for (const c of ['order', 'group', 'status']) { state.colorBy = c; renderFrame(true); }
+      switchView('methods'); await new Promise((r) => setTimeout(r, 100));
+      state.mcReps = 25; state.mcScope = 'all'; switchView('analyze'); await runAnalysis();
+      $('#sensParam').value = 'carryOnShare'; await runSensitivity();
+      switchView('plan'); await runPlan();
+      state.riskReps = 25; switchView('risk'); await runRisk();
+      if (!state.risk || !state.risk.impact.length) throw new Error('risk analysis produced no impact data');
+      setTheme('dark'); setTheme('light');
+      switchView('simulate');
+      console.info('[BoardingLab] selftest OK', Object.values(state.mc.rows).map((r) => `${r.s.short}:${fmt(r.stats.p50)}`).join(' '), 'levers:', state.plan.levers.length, 'risk:', state.risk.impact.map((e) => `${e.id}+${Math.round(e.value)}s`).join(' '));
+    } catch (e) { console.error('[BoardingLab] selftest FAILED', e && e.stack); }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+
+</script>
+</body>
+</html>
